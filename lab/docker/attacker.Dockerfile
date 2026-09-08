@@ -12,8 +12,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nmap hydra curl wget netcat-openbsd socat \
         dnsutils iputils-ping iproute2 net-tools \
         openssh-client ftp telnet tcpdump \
-        vim less procps file \
+        vim nano htop \
+        less procps file \
     && rm -rf /var/lib/apt/lists/*
+
+# neofetch saiu dos repositórios do bookworm — baixa o script oficial
+RUN curl -fsSL https://raw.githubusercontent.com/dylanaraps/neofetch/7.1.0/neofetch \
+        -o /usr/local/bin/neofetch \
+    && chmod +x /usr/local/bin/neofetch
 
 # Bibliotecas Python úteis para suas próprias ferramentas
 RUN pip install \

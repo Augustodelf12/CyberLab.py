@@ -14,7 +14,7 @@ peso no PC** e sem risco de escapar do lab. Multiplataforma: **Linux**,
 
 | Componente | Descrição |
 |---|---|
-| `cyberlab-attacker` | Atacante (debian-slim + nmap, hydra, scapy, paramiko, impacket…) com suas ferramentas em `/root/tools` |
+| `cyberlab-attacker` | Atacante (debian-slim + nmap, hydra, scapy, paramiko, impacket, vim, nano, neofetch, htop…) com suas ferramentas em `/root/tools` |
 | `cyberlab-webvuln-N` | Web app vulnerável (SQLi, XSS, LFI, command injection) |
 | `cyberlab-sshweak-N` | SSH com senhas fracas (brute-force) |
 | `cyberlab-ftpanon-N` | FTP anônimo com arquivos sensíveis |
