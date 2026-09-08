@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+build/
+dist/
 
 # Estado local do lab (não versionar suas máquinas/ferramentas custom)
 registry.json

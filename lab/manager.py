@@ -22,10 +22,11 @@ import docker
 import psutil
 from docker.errors import APIError, ImageNotFound, NotFound
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DOCKER_DIR = BASE_DIR / "docker"
-TOOLS_DIR = BASE_DIR / "tools"
-REGISTRY_PATH = BASE_DIR / "registry.json"
+from .paths import ASSETS_DIR, EXAMPLES_DIR, ensure_user_dirs, user_data_dir
+
+DOCKER_DIR = ASSETS_DIR            # Dockerfiles embutidos no pacote
+TOOLS_DIR = user_data_dir() / "tools"   # ferramentas do usuário (home)
+REGISTRY_PATH = user_data_dir() / "registry.json"
 
 NETWORK_NAME = "cyberlab-net"
 SUBNET = "172.30.0.0/24"
@@ -194,15 +195,34 @@ class LabManager:
         return result
 
     def ensure_attacker(self) -> None:
-        """Garante que o container atacante existe e está rodando."""
+        """Garante que o container atacante existe, roda e monta o TOOLS_DIR atual."""
+        # data dir + ferramentas de exemplo (idempotente)
+        ensure_user_dirs()
+        TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+        for example in EXAMPLES_DIR.glob("*"):
+            target = TOOLS_DIR / example.name
+            if not target.exists():
+                try:
+                    shutil.copy(example, target)
+                except OSError:
+                    pass
+
+        volume_ok = False
         try:
             c = self.client.containers.get(ATTACKER_NAME)
-            if c.status != "running":
-                c.start()
-            return
+            for mount in c.attrs.get("Mounts", []):
+                if mount.get("Type") == "bind":
+                    src = Path(mount.get("Source", ""))
+                    if src == TOOLS_DIR and mount.get("Destination") == "/root/tools":
+                        volume_ok = True
+            if volume_ok:
+                if c.status != "running":
+                    c.start()
+                return
+            # o volume aponta para um local antigo -> recria
+            c.remove(force=True)
         except NotFound:
             pass
-        TOOLS_DIR.mkdir(exist_ok=True)
         self.client.containers.create(
             ATTACKER_IMAGE,
             name=ATTACKER_NAME,
@@ -262,6 +282,7 @@ class LabManager:
             return {}
 
     def _save_registry(self, reg: dict) -> None:
+        REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
         REGISTRY_PATH.write_text(json.dumps(reg, indent=2, ensure_ascii=False))
 
     @staticmethod
@@ -319,7 +340,7 @@ class LabManager:
         if not src.is_dir():
             raise LabError(f"{src} não é uma pasta")
         name = self._slug(name or src.name)
-        TOOLS_DIR.mkdir(exist_ok=True)
+        TOOLS_DIR.mkdir(parents=True, exist_ok=True)
         dest = TOOLS_DIR / name
         if dest.exists():
             shutil.rmtree(dest)

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyberlab-py"
+version = "1.0.0"
+description = "Laboratório local e isolado de pentest (Docker + TUI + CLI)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Augusto" }]
+keywords = ["pentest", "security", "docker", "tui", "red-team", "ctf"]
+dependencies = [
+    "textual>=1.0",
+    "docker>=7.0",
+    "pyte>=0.8.2",
+    "ptyprocess>=0.7",
+    "psutil>=5.9",
+    "rich>=13.0",
+]
+
+[project.scripts]
+cyberlab_py = "lab.cli:main"
+
+[tool.setuptools]
+packages = ["lab"]
+
+[tool.setuptools.package-data]
+lab = ["docker/**/*", "docker/*", "examples/*"]
