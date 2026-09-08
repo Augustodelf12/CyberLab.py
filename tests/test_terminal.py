@@ -83,6 +83,15 @@ async def main() -> int:
         ok_all &= ok5
         print(f"[{'PASS' if ok5 else 'FAIL'}] neofetch roda no terminal embutido")
 
+        # 6) colar (paste) com o texto do clipboard
+        from textual.events import Paste
+
+        term.post_message(Paste("COLADO_NO_TERMINAL"))
+        await pilot.pause(2)
+        ok6 = "COLADO_NO_TERMINAL" in term.render().plain
+        ok_all &= ok6
+        print(f"[{'PASS' if ok6 else 'FAIL'}] colar (paste) insere texto do clipboard")
+
     return 0 if ok_all else 1
 
 

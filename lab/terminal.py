@@ -312,6 +312,12 @@ class Terminal(Widget):
         except (OSError, ValueError):
             self._dead = True
 
+    def on_paste(self, event: events.Paste) -> None:
+        """Cola o conteúdo do clipboard no terminal (Ctrl+Shift+V no host)."""
+        if not self._dead and self._proc:
+            self._write(event.text.encode("utf-8"))
+        event.stop()
+
     def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         self._shift_scroll(3)
         event.stop()
