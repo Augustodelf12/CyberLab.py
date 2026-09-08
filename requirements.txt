@@ -1,0 +1,6 @@
+textual>=1.0
+docker>=7.0
+pyte>=0.8.2
+ptyprocess>=0.7
+psutil>=5.9
+rich>=13.0

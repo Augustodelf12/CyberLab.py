@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Estado local do lab (não versionar suas máquinas/ferramentas custom)
+registry.json
+
+# Sistemas
+.DS_Store
+Thumbs.db
