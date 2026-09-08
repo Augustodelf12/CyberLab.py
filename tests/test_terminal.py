@@ -62,6 +62,27 @@ async def main() -> int:
         ok_all &= ok3
         print(f"[{'PASS' if ok3 else 'FAIL'}] volta ao fundo (scroll resetado)")
 
+        # 4) cores end-to-end (PTY -> pyte -> render com estilo)
+        for ch in "echo $'\\033[31mTESTE_CORES\\033[0m'":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(2)
+        render = term.render()
+        ok4a = "TESTE_CORES" in render.plain
+        ok4b = any("800000" in str(sp.style) for sp in render.spans)
+        ok_all &= ok4a and ok4b
+        print(f"[{'PASS' if ok4a else 'FAIL'}] cores end-to-end (texto renderizado)")
+        print(f"[{'PASS' if ok4b else 'FAIL'}] cores end-to-end (span colorido 256)")
+
+        # 5) neofetch roda dentro do terminal embutido
+        for ch in "neofetch --off":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause(5)
+        ok5 = "OS:" in term.render().plain
+        ok_all &= ok5
+        print(f"[{'PASS' if ok5 else 'FAIL'}] neofetch roda no terminal embutido")
+
     return 0 if ok_all else 1
 
 

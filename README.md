@@ -129,7 +129,9 @@ Suas ferramentas/alvos custom ficam em `~/.local/share/cyberlab/` (Linux) ou
 | `f2` | alterna o foco entre terminal e tabela |
 | `ctrl+q` | sai |
 
-As abas de terminal têm scrollback (roda do mouse, Shift+setas, Shift+PgUp/PgDn).
+As abas de terminal têm scrollback (roda do mouse, Shift+setas, Shift+PgUp/PgDn),
+cores **16/256/24-bit (truecolor)**, alternate screen (nano/vim/less) e suporte
+a modo de cursor de aplicação.
 
 > **Terminal embutido no Windows:** a TUI e o dashboard funcionam nativos,
 > mas as abas de terminal usam PTY (POSIX) e não abrem no Windows nativo.
