@@ -72,6 +72,17 @@ def main() -> int:
     check("sequência split entre chunks detectada", term._screen is term._alt_screen)
     term._feed(b"\x1b[?1049l")
 
+    # ---- seleção de texto (copiar)
+    t2 = Terminal(["sh"])
+    t2._buflock = threading.Lock()
+    t2._feed(b"linha_um\nlinha_dois\n")
+    lines = t2._visible_lines()
+    check("linha reconstruída do buffer",
+          t2._line_text(lines[0], t2._screen.columns).startswith("linha_um"))
+    t2._sel_start = (0, 6)
+    t2._sel_end = (0, 8)
+    check("seleção extrai o texto", t2._selected_text() == "um", repr(t2._selected_text()))
+
     print(f"\n{sum(CHECKS)}/{len(CHECKS)} verificações passaram")
     return 0 if all(CHECKS) else 1
 

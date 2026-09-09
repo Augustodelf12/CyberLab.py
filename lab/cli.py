@@ -11,10 +11,17 @@ from __future__ import annotations
 import argparse
 import os
 import stat
+import subprocess
 import sys
 from pathlib import Path
 
 from .manager import LabManager, TARGETS
+
+# Fonte de atualização (override com a env CYBERLAB_UPDATE_URL)
+UPDATE_URL = os.environ.get(
+    "CYBERLAB_UPDATE_URL",
+    "git+https://github.com/Augustodelf12/CyberLab.py",
+)
 
 
 def _manager() -> LabManager:
@@ -137,6 +144,32 @@ def cli_uninstall() -> int:
     return 0
 
 
+# ---------------------------------------------------------------- self-update
+def self_update(log=lambda line: print(line)) -> int:
+    """Reinstala o pacote direto do repositório (requer internet)."""
+    log(f"atualizando de {UPDATE_URL} …")
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "pip", "install", "--force-reinstall",
+         "--no-deps", UPDATE_URL],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.rstrip()
+        if line:
+            log(line)
+    code = proc.wait()
+    if code == 0:
+        log("✔ atualização concluída — reinicie o app (e rode `cyberlab_py --rebuild` se necessário)")
+    else:
+        log(f"[erro] atualização falhou (código {code})")
+    return code
+
+
+def cli_update() -> int:
+    return self_update()
+
+
 # ------------------------------------------------------------------- targets
 def cmd_target(args) -> int:
     m = _manager()
@@ -215,6 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--nuke", action="store_true", help="remove containers e rede")
     parser.add_argument("--install", action="store_true", help="instala o comando 'cyberlab_py' no PATH")
     parser.add_argument("--uninstall", action="store_true", help="remove o comando 'cyberlab_py' do PATH")
+    parser.add_argument("--update", action="store_true", help="atualiza o app para a versão mais recente")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -262,6 +296,8 @@ def main() -> int:
         return cli_install()
     if args.uninstall:
         return cli_uninstall()
+    if args.update:
+        return cli_update()
 
     from .app import CyberLabApp
 

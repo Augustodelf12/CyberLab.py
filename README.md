@@ -91,6 +91,7 @@ cyberlab_py --setup    # rede + imagens faltantes
 cyberlab_py --rebuild  # reconstrói todas as imagens
 cyberlab_py --nuke     # remove containers e rede do lab
 cyberlab_py --install / --uninstall   # comando global no PATH
+cyberlab_py --update                  # atualiza o app (sem desinstalar)
 ```
 
 ### Compilar alvos e ferramentas
@@ -126,12 +127,15 @@ Suas ferramentas/alvos custom ficam em `~/.local/share/cyberlab/` (Linux) ou
 | `s` | liga/desliga a máquina selecionada |
 | `x` | destrói a máquina selecionada (pede confirmação) |
 | `i` | alterna internet (NAT) na máquina atacante |
+| `u` | atualiza o app para a versão mais recente |
 | `f2` | alterna o foco entre terminal e tabela |
 | `ctrl+q` | sai |
 
 As abas de terminal têm scrollback (roda do mouse, Shift+setas, Shift+PgUp/PgDn),
 cores **16/256/24-bit (truecolor)**, alternate screen (nano/vim/less) e suporte
-a modo de cursor de aplicação.
+a modo de cursor. Para copiar a saída: **arraste com o mouse** para selecionar e
+pressione **`Ctrl+Shift+C`** (sem seleção, copia a linha do cursor). Cole com
+**`Ctrl+Shift+V`**.
 
 > **Terminal embutido no Windows:** a TUI e o dashboard funcionam nativos,
 > mas as abas de terminal usam PTY (POSIX) e não abrem no Windows nativo.

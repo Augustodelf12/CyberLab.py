@@ -17,6 +17,7 @@ from ptyprocess import PtyProcess
 from rich.style import Style
 from rich.text import Text
 from textual import events
+from textual.binding import Binding
 from textual.widget import Widget
 
 # --------------------------------------------------------------------------
@@ -88,6 +89,8 @@ class Terminal(Widget):
 
     can_focus = True
 
+    BINDINGS = [Binding("ctrl+shift+c", "copy_selection", "copiar seleção", show=False)]
+
     DEFAULT_CSS = """
     Terminal {
         background: #0c0c0c;
@@ -120,6 +123,9 @@ class Terminal(Widget):
         self._scroll = 0          # linhas de scrollback acima do fundo (0 = fim)
         self._app_cursor = False  # DECCKM: setas em application mode (nano)
         self._pending = b""       # bytes aguardando sequência de controle split
+        self._selecting = False   # seleção de texto com o mouse
+        self._sel_start: tuple[int, int] | None = None
+        self._sel_end: tuple[int, int] | None = None
 
     # ------------------------------------------------------------- ciclo de vida
     def on_mount(self) -> None:
@@ -329,6 +335,7 @@ class Terminal(Widget):
     def _shift_scroll(self, delta: int) -> None:
         old = self._scroll
         self._scroll = max(0, old + delta)
+        self._clear_selection()
         if self._scroll != old:
             self._update_subtitle()
             self.refresh()
@@ -340,6 +347,121 @@ class Terminal(Widget):
             self.border_subtitle = "encerrado"
         else:
             self.border_subtitle = ""
+
+    # ---------------------------------------------------- seleção de texto
+    def _cell_at(self, event: events.MouseEvent) -> tuple[int, int]:
+        x = int(event.x) - 2   # desconta borda + padding à esquerda
+        y = int(event.y) - 1   # desconta a borda superior
+        cols = max(1, self._screen.columns)
+        lines = max(1, self._screen.lines)
+        return (max(0, min(lines - 1, y)), max(0, min(cols - 1, x)))
+
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        if event.button == 1 and not self._dead:
+            self._selecting = True
+            cell = self._cell_at(event)
+            self._sel_start = cell
+            self._sel_end = cell
+            self.capture_mouse()
+            self.refresh()
+            event.stop()
+
+    def on_mouse_move(self, event: events.MouseMove) -> None:
+        if self._selecting:
+            self._sel_end = self._cell_at(event)
+            self.refresh()
+            event.stop()
+
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        if self._selecting:
+            self._selecting = False
+            self.release_mouse()
+            event.stop()
+
+    def _clear_selection(self) -> None:
+        self._selecting = False
+        self._sel_start = None
+        self._sel_end = None
+
+    def _visible_lines(self) -> list:
+        """Linhas visíveis na viewport (já aplicando o scrollback)."""
+        screen = self._screen
+        with self._buflock:
+            if self._scroll > 0:
+                history = list(screen.history.top)
+            else:
+                history = []
+            buffer_lines = [screen.buffer.get(y, {}) for y in range(screen.lines)]
+        max_scroll = len(history)
+        if self._scroll > max_scroll:
+            self._scroll = max_scroll
+        if self._scroll <= 0:
+            return buffer_lines
+        top_src = max_scroll - self._scroll
+        lines = []
+        for i in range(screen.lines):
+            src = top_src + i
+            if src < max_scroll:
+                lines.append(history[src])
+            else:
+                lines.append(buffer_lines[src - max_scroll])
+        return lines
+
+    @staticmethod
+    def _line_text(line: dict, columns: int) -> str:
+        return "".join(line.get(x, _BLANK).data for x in range(columns))
+
+    def _in_selection(self, y: int, x: int) -> bool:
+        if not (self._sel_start and self._sel_end):
+            return False
+        (y1, x1), (y2, x2) = self._sel_start, self._sel_end
+        if (y1, x1) > (y2, x2):
+            (y1, x1), (y2, x2) = (y2, x2), (y1, x1)
+        if y1 == y2:
+            return y == y1 and x1 <= x <= x2
+        if y == y1:
+            return x >= x1
+        if y1 < y < y2:
+            return True
+        if y == y2:
+            return x <= x2
+        return False
+
+    def _selected_text(self) -> str:
+        if not (self._sel_start and self._sel_end):
+            return ""
+        (y1, x1), (y2, x2) = self._sel_start, self._sel_end
+        if (y1, x1) > (y2, x2):
+            (y1, x1), (y2, x2) = (y2, x2), (y1, x1)
+        lines = self._visible_lines()
+        cols = self._screen.columns
+        if y1 == y2:
+            return self._line_text(lines[y1], cols)[x1 : x2 + 1].rstrip()
+        out = [self._line_text(lines[y1], cols)[x1:].rstrip()]
+        for y in range(y1 + 1, y2):
+            out.append(self._line_text(lines[y], cols).rstrip())
+        out.append(self._line_text(lines[y2], cols)[: x2 + 1].rstrip())
+        return "\n".join(out)
+
+    def action_copy_selection(self) -> None:
+        text = self._selected_text()
+        if not text:
+            # sem seleção: copia a linha onde está o cursor
+            y = self._screen.cursor.y
+            lines = self._visible_lines()
+            if 0 <= y < len(lines):
+                text = self._line_text(lines[y], self._screen.columns).rstrip()
+        if text:
+            try:
+                self.app.copy_to_clipboard(text)
+            except Exception:
+                self.border_subtitle = "erro ao copiar"
+                self.refresh()
+                return
+            self.border_subtitle = f"copiado ({len(text)} caracteres)"
+        else:
+            self.border_subtitle = "nada para copiar"
+        self.refresh()
 
     # ------------------------------------------------------------------ resize
     def on_resize(self, event: events.Resize) -> None:
@@ -365,36 +487,18 @@ class Terminal(Widget):
             and self._scroll <= 0
         )
         cx, cy = screen.cursor.x, screen.cursor.y
-        with self._buflock:
-            if self._scroll > 0:
-                history = list(screen.history.top)
-            else:
-                history = []
-            buffer_lines = [screen.buffer.get(y, {}) for y in range(screen.lines)]
-            columns = screen.columns
-        # projeta a janela visível: linhas do histórico (scrollback) + viewport
-        max_scroll = len(history)
-        if self._scroll > max_scroll:
-            self._scroll = max_scroll
-        if self._scroll <= 0:
-            lines = [(y, buffer_lines[y]) for y in range(screen.lines)]
-        else:
-            top_src = max_scroll - self._scroll
-            lines = []
-            for i in range(screen.lines):
-                src = top_src + i
-                if src < max_scroll:
-                    lines.append((i, history[src]))
-                else:
-                    lines.append((i, buffer_lines[src - max_scroll]))
+        columns = screen.columns
+        lines = self._visible_lines()
 
         text = Text()
-        for y, line in lines:
+        for y, line in enumerate(lines):
             run_style: Style | None = None
             run_chars: list[str] = []
             for x in range(columns):
                 char = line.get(x, _BLANK)
                 style = _cell_style(char)
+                if self._in_selection(y, x):
+                    style += Style(bgcolor="#2a4a6a")
                 if show_cursor and y == cy and x == cx:
                     style = style + Style(reverse=True)
                 if style != run_style and run_chars:

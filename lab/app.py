@@ -34,7 +34,9 @@ from textual.widgets import (
     TabPane,
 )
 
+from . import __version__
 from .manager import ATTACKER_NAME, LabManager, Machine
+from .cli import self_update
 from .terminal import Terminal
 
 _SHELLS = {"attacker": "/bin/bash"}
@@ -176,7 +178,7 @@ class ConfirmModal(ModalScreen[bool]):
 # ------------------------------------------------------------------------ app
 class CyberLabApp(App[None]):
     TITLE = "CyberLab"
-    SUB_TITLE = "laboratório de pentest isolado"
+    SUB_TITLE = f"v{__version__} · laboratório de pentest isolado"
 
     BINDINGS = [
         Binding("ctrl+q", "quit_app", "sair", priority=True),
@@ -186,6 +188,7 @@ class CyberLabApp(App[None]):
         Binding("x", "destroy", "destruir"),
         Binding("a", "import", "importar pasta"),
         Binding("i", "toggle_internet", "internet atacante"),
+        Binding("u", "update", "atualizar app"),
     ]
 
     CSS = """
@@ -237,6 +240,8 @@ class CyberLabApp(App[None]):
         self._last_sig: list | None = None
         self._cpu_hist: list[float] = [0.0]
         self._ram_hist: list[float] = [0.0]
+        self._host_cpu_hist: list[float] = [0.0]
+        self._host_ram_hist: list[float] = [0.0]
         self._docker_down_logged = False
         self._pending_select: str | None = None  # máquina a selecionar no próximo refresh
 
@@ -246,6 +251,7 @@ class CyberLabApp(App[None]):
         with Horizontal(id="top"):
             with Vertical(id="sidebar"):
                 yield Label("[b #00ff41]MÁQUINAS[/]  [dim](enter = terminal)[/]")
+                yield Label("", id="lab-info")
                 table = DataTable(id="machines", cursor_type="row", zebra_stripes=True)
                 table.add_column("máquina", key="name")
                 table.add_column("tipo", key="kind")
@@ -260,13 +266,18 @@ class CyberLabApp(App[None]):
                     yield Button("Novo alvo", id="btn-new", variant="primary")
                     yield Button("Destruir", id="btn-destroy", variant="error")
                     yield Button("Importar…", id="btn-import", variant="default")
+                    yield Button("Atualizar", id="btn-update", variant="default")
                     yield Button("Internet: off", id="btn-net")
             with Vertical(id="center"):
                 with Horizontal(id="meters"):
                     with Vertical(classes="meter"):
-                        yield Label("HOST", classes="meter-title")
-                        yield Label("…", id="host-info")
-                        yield Label("", id="lab-info")
+                        yield Label("HOST CPU %", classes="meter-title")
+                        yield Label("0%", id="host-cpu-label")
+                        yield Sparkline(self._host_cpu_hist, id="spark-host-cpu")
+                    with Vertical(classes="meter"):
+                        yield Label("HOST RAM", classes="meter-title")
+                        yield Label("0 GB", id="host-ram-label")
+                        yield Sparkline(self._host_ram_hist, id="spark-host-ram")
                     with Vertical(classes="meter"):
                         yield Label("LAB CPU %", classes="meter-title")
                         yield Label("0%", id="lab-cpu-label")
@@ -393,25 +404,38 @@ class CyberLabApp(App[None]):
         total_cpu = sum(v[0] for v in stats.values())
         total_mem = sum(v[1] for v in stats.values())
         running = sum(1 for m in machines if m.status == "running")
+        host_cpu = host.get("cpu", 0.0)
+        host_ram_gb = host.get("mem_used_gb", 0.0)
+
         self._cpu_hist.append(total_cpu)
         self._ram_hist.append(total_mem)
-        del self._cpu_hist[:-180]
-        del self._ram_hist[:-180]
-        self.query_one("#spark-cpu", Sparkline).data = list(self._cpu_hist)
-        self.query_one("#spark-ram", Sparkline).data = list(self._ram_hist)
+        self._host_cpu_hist.append(host_cpu)
+        self._host_ram_hist.append(host_ram_gb)
+        for hist in (self._cpu_hist, self._ram_hist, self._host_cpu_hist, self._host_ram_hist):
+            del hist[:-180]
+
+        try:
+            self.query_one("#spark-cpu", Sparkline).data = list(self._cpu_hist)
+            self.query_one("#spark-ram", Sparkline).data = list(self._ram_hist)
+            self.query_one("#spark-host-cpu", Sparkline).data = list(self._host_cpu_hist)
+            self.query_one("#spark-host-ram", Sparkline).data = list(self._host_ram_hist)
+        except Exception:
+            pass
+        for spark in self.query(Sparkline):
+            spark.refresh()
+
         self.query_one("#lab-cpu-label", Label).update(f"{total_cpu:.1f}%")
         self.query_one("#lab-ram-label", Label).update(f"{total_mem:.0f} MB")
+        self.query_one("#host-cpu-label", Label).update(f"{host_cpu:.0f}%")
+        self.query_one("#host-ram-label", Label).update(f"{host_ram_gb:.1f} GB")
 
         try:
             internet = self.manager.internet_enabled()
         except Exception:
             internet = False
-        self.query_one("#host-info", Label).update(
-            f"cpu {host['cpu']:.0f}% · ram {host['mem_used_gb']:.1f}/{host['mem_total_gb']:.1f} GB"
-        )
         self.query_one("#lab-info", Label).update(
-            f"ativas {running}/{len(machines)} · "
-            f"internet atacante: {'[bold green]ON[/]' if internet else 'off'}"
+            f"[dim]{running}/{len(machines)} ativas · internet "
+            f"{'[bold #00ff41]ON[/]' if internet else '[dim]off[/]'}[/]"
         )
         btn_net = self.query_one("#btn-net", Button)
         btn_net.label = "Internet: ON" if internet else "Internet: off"
@@ -525,6 +549,20 @@ class CyberLabApp(App[None]):
             self._log(f"[bold red]falha ao importar ferramenta:[/] {exc}")
             return
         self._log(f"ferramenta [green]{name}[/] disponível em /root/tools/{name} (atacante)")
+
+    # ---- atualização do próprio app (sem desinstalar)
+    def action_update(self) -> None:
+        self._update_app()
+
+    @on(Button.Pressed, "#btn-update")
+    def _btn_update(self) -> None:
+        self.action_update()
+
+    @work(thread=True)
+    def _update_app(self) -> None:
+        self._log("[bold cyan]atualizando o app…[/] (pode levar alguns minutos)")
+        self_update(log=self._log)
+        self._log("[bold green]atualização concluída[/] — saia (ctrl+q) e abra o cyberlab_py de novo")
 
     @work(thread=True)
     def _spawn_target(self, kind: str) -> None:

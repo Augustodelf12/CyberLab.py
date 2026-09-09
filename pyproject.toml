@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cyberlab-py"
-version = "1.0.0"
+version = "1.0.5"
 description = "Laboratório local e isolado de pentest (Docker + TUI + CLI)"
 readme = "README.md"
 requires-python = ">=3.10"
