@@ -92,6 +92,7 @@ cyberlab_py --rebuild  # reconstrói todas as imagens
 cyberlab_py --nuke     # remove containers e rede do lab
 cyberlab_py --install / --uninstall   # comando global no PATH
 cyberlab_py --update                  # atualiza o app (sem desinstalar)
+cyberlab_py --audit                   # audita o isolamento de rede do lab
 ```
 
 ### Compilar alvos e ferramentas
@@ -128,6 +129,7 @@ Suas ferramentas/alvos custom ficam em `~/.local/share/cyberlab/` (Linux) ou
 | `x` | destrói a máquina selecionada (pede confirmação) |
 | `i` | alterna internet (NAT) na máquina atacante |
 | `u` | atualiza o app para a versão mais recente |
+| `ctrl+p` | abre o command palette (importar, atualizar, tema, sair…) |
 | `f2` | alterna o foco entre terminal e tabela |
 | `ctrl+q` | sai |
 
@@ -182,6 +184,26 @@ Instalar libs novas no atacante: ligue a internet (tecla `i`) e rode
 - O `attacker` nasce sem internet; ganha NAT só se você ativar (tecla `i`).
 - **Nunca** altere os Dockerfiles para publicar portas ou remover o `internal`
   — aí o lab deixa de ser isolado e expõe máquinas vulneráveis na LAN.
+
+### Modo airgap (uso crítico)
+
+Para garantir **zero conexão de rede externa** — ideal para pentest de código
+crítico/sensível — rode com `CYBERLAB_AIRGAP=1`:
+
+```bash
+CYBERLAB_AIRGAP=1 cyberlab_py --setup
+CYBERLAB_AIRGAP=1 cyberlab_py            # TUI com internet travada
+```
+
+Nesse modo o toggle de internet é desabilitado (o botão fica "travada"),
+`--update` é bloqueado. Audite a qualquer momento:
+
+```bash
+cyberlab_py --audit
+```
+
+que verifica: rede interna, ausência de portas publicadas no host, atacante
+sem NAT e containers restritos à rede do lab.
 
 ## Estrutura
 

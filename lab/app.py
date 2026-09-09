@@ -14,7 +14,7 @@ from datetime import datetime
 
 from rich.text import Text
 from textual import on, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -35,7 +35,7 @@ from textual.widgets import (
 )
 
 from . import __version__
-from .manager import ATTACKER_NAME, LabManager, Machine
+from .manager import AIRGAP, ATTACKER_NAME, LabManager, Machine
 from .cli import self_update
 from .terminal import Terminal
 
@@ -265,8 +265,6 @@ class CyberLabApp(App[None]):
                     yield Button("Parar", id="btn-stop", variant="warning")
                     yield Button("Novo alvo", id="btn-new", variant="primary")
                     yield Button("Destruir", id="btn-destroy", variant="error")
-                    yield Button("Importar…", id="btn-import", variant="default")
-                    yield Button("Atualizar", id="btn-update", variant="default")
                     yield Button("Internet: off", id="btn-net")
             with Vertical(id="center"):
                 with Horizontal(id="meters"):
@@ -299,6 +297,21 @@ class CyberLabApp(App[None]):
         self._log("inicializando o laboratório…")
         self._setup()
         self.set_interval(1.0, self._tick)
+
+    def get_system_commands(self, screen: object) -> list:
+        yield from super().get_system_commands(screen)
+        yield SystemCommand(
+            "Importar pasta (alvo/ferramenta)",
+            "Importa uma pasta do disco como máquina-alvo ou como ferramenta",
+            self.action_import,
+            False,
+        )
+        yield SystemCommand(
+            "Atualizar o app",
+            "Atualiza o CyberLab para a versão mais recente (requer internet)",
+            self.action_update,
+            False,
+        )
 
     # ------------------------------------------------------------------ logs
     def _write_log(self, msg: str) -> None:
@@ -434,11 +447,16 @@ class CyberLabApp(App[None]):
         except Exception:
             internet = False
         self.query_one("#lab-info", Label).update(
-            f"[dim]{running}/{len(machines)} ativas · internet "
-            f"{'[bold #00ff41]ON[/]' if internet else '[dim]off[/]'}[/]"
+            f"[dim]{running}/{len(machines)} ativas · "
+            f"{'[bold #ff5f5f]AIRGAP[/]' if AIRGAP else 'internet ' + ('[bold #00ff41]ON[/]' if internet else '[dim]off[/]')}[/]"
         )
         btn_net = self.query_one("#btn-net", Button)
-        btn_net.label = "Internet: ON" if internet else "Internet: off"
+        if AIRGAP:
+            btn_net.disabled = True
+            btn_net.label = "Internet: travada"
+        else:
+            btn_net.disabled = False
+            btn_net.label = "Internet: ON" if internet else "Internet: off"
 
     @staticmethod
     def _row_cells(m: Machine, stat) -> tuple:
@@ -526,10 +544,6 @@ class CyberLabApp(App[None]):
 
         self.push_screen(ImportModal(), _done)
 
-    @on(Button.Pressed, "#btn-import")
-    def _btn_import(self) -> None:
-        self.action_import()
-
     @work(thread=True)
     def _import_target(self, path: str) -> None:
         self._log(f"[build] compilando alvo de '{path}'…")
@@ -553,10 +567,6 @@ class CyberLabApp(App[None]):
     # ---- atualização do próprio app (sem desinstalar)
     def action_update(self) -> None:
         self._update_app()
-
-    @on(Button.Pressed, "#btn-update")
-    def _btn_update(self) -> None:
-        self.action_update()
 
     @work(thread=True)
     def _update_app(self) -> None:

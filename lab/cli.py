@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .manager import LabManager, TARGETS
+from .manager import AIRGAP, LabManager, TARGETS
 
 # Fonte de atualização (override com a env CYBERLAB_UPDATE_URL)
 UPDATE_URL = os.environ.get(
@@ -147,6 +147,10 @@ def cli_uninstall() -> int:
 # ---------------------------------------------------------------- self-update
 def self_update(log=lambda line: print(line)) -> int:
     """Reinstala o pacote direto do repositório (requer internet)."""
+    log
+    if AIRGAP:
+        log("[airgap] atualização bloqueada (CYBERLAB_AIRGAP=1 — sem rede externa)")
+        return 1
     log(f"atualizando de {UPDATE_URL} …")
     proc = subprocess.Popen(
         [sys.executable, "-m", "pip", "install", "--force-reinstall",
@@ -168,6 +172,28 @@ def self_update(log=lambda line: print(line)) -> int:
 
 def cli_update() -> int:
     return self_update()
+
+
+def cli_audit() -> int:
+    m = _manager()
+    report = m.audit_isolation()
+    checks = [
+        ("rede_internal", "rede do lab é internal (sem rota para fora)"),
+        ("sem_portas_publicadas", "nenhuma porta publicada no host"),
+        ("atacante_sem_nat", "atacante sem NAT/ligação à internet"),
+        ("containers_so_internal", "containers apenas na rede interna"),
+    ]
+    ok = True
+    for key, desc in checks:
+        good = bool(report.get(key, False))
+        ok = ok and good
+        print(f"[{'OK ' if good else 'RUIM'}] {desc}")
+    print(f"\nmodo airgap: {'ATIVO' if AIRGAP else 'off (CYBERLAB_AIRGAP=1 para travar)'}")
+    if ok:
+        print("✔ ISOLADO — sem conexão de rede externa")
+    else:
+        print("✖ ATENÇÃO: há possíveis vias de saída de rede (veja acima)")
+    return 0 if ok else 1
 
 
 # ------------------------------------------------------------------- targets
@@ -249,6 +275,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--install", action="store_true", help="instala o comando 'cyberlab_py' no PATH")
     parser.add_argument("--uninstall", action="store_true", help="remove o comando 'cyberlab_py' do PATH")
     parser.add_argument("--update", action="store_true", help="atualiza o app para a versão mais recente")
+    parser.add_argument("--audit", action="store_true", help="audita o isolamento de rede do lab")
 
     sub = parser.add_subparsers(dest="command")
 
@@ -298,6 +325,8 @@ def main() -> int:
         return cli_uninstall()
     if args.update:
         return cli_update()
+    if args.audit:
+        return cli_audit()
 
     from .app import CyberLabApp
 

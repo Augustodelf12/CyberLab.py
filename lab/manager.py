@@ -7,6 +7,7 @@ máquinas dinamicamente a partir da TUI.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -27,6 +28,12 @@ from .paths import ASSETS_DIR, EXAMPLES_DIR, ensure_user_dirs, user_data_dir
 DOCKER_DIR = ASSETS_DIR            # Dockerfiles embutidos no pacote
 TOOLS_DIR = user_data_dir() / "tools"   # ferramentas do usuário (home)
 REGISTRY_PATH = user_data_dir() / "registry.json"
+
+# Modo "airgap": bloqueia TODO acesso à rede externa (internet/LAN) no lab.
+# Ative com CYBERLAB_AIRGAP=1. Ideal para pentest de código crítico.
+AIRGAP = os.environ.get("CYBERLAB_AIRGAP", "").strip().lower() in (
+    "1", "true", "yes", "on",
+)
 
 NETWORK_NAME = "cyberlab-net"
 SUBNET = "172.30.0.0/24"
@@ -383,7 +390,8 @@ class LabManager:
         entry = entrypoint or self.tool_entrypoint(name)
         cmdline = [*shlex.split(entry), *[str(a) for a in args]]
         command = (
-            f"cd /root/tools/{name} && " + " ".join(shlex.quote(a) for a in cmdline)
+            f"cd {shlex.quote('/root/tools/' + name)} && "
+            + " ".join(shlex.quote(a) for a in cmdline)
         )
         flags = "-it" if sys.stdin.isatty() else "-i"
         return subprocess.call(
@@ -393,6 +401,9 @@ class LabManager:
     # --------------------------------------------------------- internet NAT
     def set_internet(self, enabled: bool) -> bool:
         """Conecta/desconecta o atacante da rede bridge (NAT -> internet)."""
+        if AIRGAP:
+            # Em modo airgap, nunca permite saída de rede.
+            return False
         bridge = self.client.networks.get("bridge")
         current = self.internet_enabled()
         try:
@@ -405,11 +416,48 @@ class LabManager:
         return self.internet_enabled()
 
     def internet_enabled(self) -> bool:
+        if AIRGAP:
+            return False
         try:
             c = self.client.containers.get(ATTACKER_NAME)
         except NotFound:
             return False
         return "bridge" in c.attrs["NetworkSettings"]["Networks"]
+
+    # ----------------------------------------------------------- isolamento
+    def audit_isolation(self) -> dict[str, bool]:
+        """Verifica se o lab está hermético (sem saída para rede externa)."""
+        report: dict[str, bool] = {}
+
+        # 1. rede é internal (sem rota para fora)
+        try:
+            net = self.client.networks.get(NETWORK_NAME)
+            report["rede_internal"] = bool(net.attrs.get("Internal", False))
+        except NotFound:
+            report["rede_internal"] = False
+
+        # 2. nenhum container publica portas no host
+        published = []
+        for c in self._lab_containers():
+            for mapping in c.attrs.get("NetworkSettings", {}).get("Ports", {}).values():
+                if mapping:
+                    published.append(c.name)
+        report["sem_portas_publicadas"] = not published
+
+        # 3. atacante não está conectado à bridge (internet/NAT desligado)
+        report["atacante_sem_nat"] = not self.internet_enabled()
+
+        # 4. todos os containers estão SOMENTE na rede interna do lab
+        only_internal = True
+        for c in self._lab_containers():
+            nets = set(c.attrs["NetworkSettings"]["Networks"].keys())
+            extra = nets - {NETWORK_NAME}
+            if extra:
+                only_internal = False
+                break
+        report["containers_so_internal"] = only_internal
+
+        return report
 
     # ---------------------------------------------------------------- stats
     def sample_stats(self) -> dict[str, tuple[float, float, float]]:
