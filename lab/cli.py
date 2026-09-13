@@ -157,7 +157,8 @@ def self_update(log=lambda line: print(line)) -> int:
          "--no-deps", UPDATE_URL],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        return proc.wait()
     for line in proc.stdout:
         line = line.rstrip()
         if line:

@@ -20,7 +20,6 @@ import re
 import sqlite3
 import subprocess
 import urllib.request
-from functools import wraps
 
 from flask import Flask, abort, redirect, render_template_string, request, session
 
@@ -194,7 +193,11 @@ def account():
 @app.route("/feedback", methods=["GET", "POST"])
 def feedback():
     if request.method == "POST":
-        user = session.get("uid") and (lambda x: x[0][0])(q("SELECT username FROM users WHERE id=?", (session["uid"],))[:1]) or "anon"
+        user = "anon"
+        if session.get("uid"):
+            rows = q("SELECT username FROM users WHERE id=?", (session["uid"],))
+            if rows:
+                user = rows[0][0]
         msg = request.form.get("msg", "")
         # VULNERÁVEL: ecoa sem escapar (XSS armazenado)
         sql = f"INSERT INTO feedback(user, msg) VALUES('{user}', '{msg}')"

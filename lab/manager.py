@@ -367,7 +367,9 @@ class LabManager:
         dest = TOOLS_DIR / name
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.copytree(src, dest)
+        # symlinks=True: NÃO segue links simbólicos (evita copiar conteúdo fora
+        # da pasta de origem para dentro do volume montado no atacante).
+        shutil.copytree(src, dest, symlinks=True, ignore_dangling_symlinks=True)
         reg = self._load_registry()
         reg.setdefault("tools", {})[name] = {"path": str(src), "synced": str(dest)}
         self._save_registry(reg)
