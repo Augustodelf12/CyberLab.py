@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CyberLab.py — Laboratório de Pentest Isolado</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">⚡ CyberLab<span class="accent">.py</span></div>
+    <nav>
+      <a href="#recursos">Recursos</a>
+      <a href="#seguranca">Segurança</a>
+      <a href="#alvos">Alvos</a>
+      <a href="#instalar">Instalar</a>
+    </nav>
+    <a class="btn ghost" href="https://github.com/Augustodelf12/CyberLab.py">GitHub</a>
+  </header>
+
+  <section class="hero">
+    <h1>Monte um laboratório de pentest <span class="accent">isolado</span><br>e realista no seu próprio PC.</h1>
+    <p class="lead">
+      Máquinas vulneráveis + máquina atacante rodando como containers Docker,
+      controlados por uma TUI de terminal e uma CLI de um comando. Ideal para
+      treinar red team e testar suas ferramentas — sem expor sua rede.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="#instalar">Começar agora</a>
+      <a class="btn ghost" href="https://github.com/Augustodelf12/CyberLab.py#readme">Ver documentação</a>
+    </div>
+    <pre class="code">pipx install git+https://github.com/Augustodelf12/CyberLab.py
+cyberlab_py --setup
+cyberlab_py</pre>
+  </section>
+
+  <section id="recursos" class="section">
+    <h2>Por que o CyberLab?</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>🖥️ Dashboard em tempo real</h3>
+        <p>CPU/RAM ao vivo, status das máquinas e terminais interativos com cores, scrollback, nano, vim e neofetch — tudo em uma TUI (Textual).</p>
+      </div>
+      <div class="card">
+        <h3>🧩 Alvos prontos e custom</h3>
+        <p>Loja web realista, escalação de privilégio, SQLi, XSS, IDOR, SSRF… e você compila qualquer pasta sua como um novo alvo.</p>
+      </div>
+      <div class="card">
+        <h3>🛠️ Teste suas ferramentas</h3>
+        <p>Escreva scanners, fuzzers e bruteforcers em Python e rode-os dentro da máquina atacante contra os alvos.</p>
+      </div>
+      <div class="card">
+        <h3>⚡ Ultra leve</h3>
+        <p>O lab inteiro consome ~30 MB de RAM com 4 máquinas rodando. Funciona em Linux, Windows e macOS.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="seguranca" class="section dark">
+    <h2>Segurança de verdade, por arquitetura</h2>
+    <ul class="checks">
+      <li><strong>Rede 100% interna</strong> — `internal: true`, sem rota para internet ou LAN.</li>
+      <li><strong>Zero portas publicadas</strong> — nenhum container expõe porta no seu host.</li>
+      <li><strong>Modo airgap</strong> — `CYBERLAB_AIRGAP=1` trava toda saída de rede, ideal para código crítico.</li>
+      <li><strong>Auditoria em um comando</strong> — `cyberlab_py --audit` prova o isolamento.</li>
+      <li><strong>Tudo efêmero</strong> — um alvo comprometido é um container descartável.</li>
+    </ul>
+  </section>
+
+  <section id="alvos" class="section">
+    <h2>Alvos inclusos</h2>
+    <div class="grid">
+      <div class="card"><h3>webvuln</h3><p>SQLi, XSS, LFI e command injection (fácil).</p></div>
+      <div class="card"><h3>shopvuln</h3><p>Loja realista: SQLi, IDOR, SSRF, XSS stored, RCE (médio).</p></div>
+      <div class="card"><h3>privesc</h3><p>Linux com escalação de privilégio via sudo/cron/SUID (médio).</p></div>
+      <div class="card"><h3>sshweak</h3><p>SSH com senhas fracas para brute-force.</p></div>
+      <div class="card"><h3>ftpanon</h3><p>FTP anônimo com arquivos sensíveis.</p></div>
+      <div class="card"><h3>+ seus alvos</h3><p><code>cyberlab_py target add ./meu-app</code></p></div>
+    </div>
+  </section>
+
+  <section id="instalar" class="section">
+    <h2>Instalação</h2>
+    <div class="codeblock">
+      <p>Linux / macOS:</p>
+      <pre>pipx install git+https://github.com/Augustodelf12/CyberLab.py
+cyberlab_py --setup
+cyberlab_py</pre>
+      <p>Windows (PowerShell):</p>
+      <pre>pip install git+https://github.com/Augustodelf12/CyberLab.py
+cyberlab_py --setup</pre>
+    </div>
+    <p class="muted">Pré-requisitos: Docker + Python 3.10+. Documentação de hacking em <code>docs/</code>.</p>
+  </section>
+
+  <footer>
+    <p>CyberLab.py — projeto educacional de segurança. Use apenas em ambientes autorizados.</p>
+  </footer>
+</body>
+</html>
