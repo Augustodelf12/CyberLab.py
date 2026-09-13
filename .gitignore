@@ -7,8 +7,11 @@ venv/
 build/
 dist/
 
-# Estado local do lab (não versionar suas máquinas/ferramentas custom)
+# Estado local do lab (não versionar máquinas/ferramentas custom)
 registry.json
+
+# Site institucional (proprietário — não vai para o repositório público)
+site/
 
 # Sistemas
 .DS_Store
