@@ -12,6 +12,7 @@ registry.json
 
 # Site institucional (proprietário — não vai para o repositório público)
 site/
+video_contexto/
 
 # Sistemas
 .DS_Store
