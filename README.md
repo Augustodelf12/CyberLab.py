@@ -253,3 +253,13 @@ CyberLab.py/
 - **Terminal embutido não abre (Windows)**: use WSL 2 ou `docker exec -it` por fora.
 - **Lentidão no primeiro uso**: é o build das imagens (`--setup`); depois os
   containers sobem em segundos.
+
+---
+
+##  Site do projeto
+
+Acesse a página oficial — documentação, alvos, arquitetura e instalação em um só lugar:
+
+- **[cyberlabpy.onrender.com](https://cyberlabpy.onrender.com/)**
+
+[![CyberLab](https://img.shields.io/badge/🌐-CyberLab-2dd4bf?style=for-the-badge)](https://cyberlabpy.onrender.com/)
