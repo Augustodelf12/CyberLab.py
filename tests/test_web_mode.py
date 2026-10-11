@@ -124,7 +124,7 @@ def test_web_mode_blocks_other_vms():
                 m.spawn_target(kind)
                 check(f"web: spawn {kind} recusado", False, "não levantou LabError")
             except LabError as exc:
-                ok = "🔒" in str(exc) and "app completo" in str(exc) and kind in str(exc)
+                ok = "app completo" in str(exc) and "app completo" in str(exc) and kind in str(exc)
                 check(f"web: spawn {kind} recusado (msg do app)", ok, str(exc))
     finally:
         mgmt.WEB_MODE = old
@@ -179,7 +179,7 @@ def test_web_mode_blocks_custom_targets_and_tools():
                     call()
                     check(f"web: {label} recusado", False, "não levantou LabError")
                 except LabError as exc:
-                    check(f"web: {label} recusado (msg do app)", "🔒" in str(exc), str(exc))
+                    check(f"web: {label} recusado (msg do app)", "app completo" in str(exc), str(exc))
             reg = json.loads(mgmt.REGISTRY_PATH.read_text()) if mgmt.REGISTRY_PATH.exists() else {}
             check("web: registry permanece vazio", not reg, str(reg))
         with_temp_registry(scenario)

@@ -292,7 +292,7 @@ class LabManager:
             raise LabError(f"tipo de alvo desconhecido: {kind}")
         if WEB_MODE and kind not in WEB_ALLOWED_TARGETS:
             raise LabError(
-                f"🔒 {kind}: este alvo roda apenas no app completo — "
+                f"{kind}: este alvo roda apenas no app completo — "
                 "instale: https://github.com/Augustodelf12/CyberLab.py"
             )
         existing = {m.name for m in self.machines() if m.kind == kind}
@@ -371,7 +371,7 @@ class LabManager:
     def add_target(self, path: str | Path, name: str | None = None) -> str:
         """'Compila' uma pasta com Dockerfile em imagem e registra como alvo."""
         if WEB_MODE:
-            raise LabError("🔒 target add: compilar Dockerfile exige o Docker do app completo")
+            raise LabError("target add: compilar Dockerfile exige o Docker do app completo")
         context = Path(path).expanduser().resolve()
         if not (context / "Dockerfile").is_file():
             raise LabError(f"nenhum Dockerfile em {context}")
@@ -412,7 +412,7 @@ class LabManager:
     def add_tool(self, path: str | Path, name: str | None = None) -> str:
         """Sincroniza uma pasta de ferramenta para /root/tools do atacante."""
         if WEB_MODE:
-            raise LabError("🔒 tool add: sincronizar ferramentas roda no app completo")
+            raise LabError("tool add: sincronizar ferramentas roda no app completo")
         src = Path(path).expanduser().resolve()
         if not src.is_dir():
             raise LabError(f"{src} não é uma pasta")
@@ -475,7 +475,7 @@ class LabManager:
     ) -> int:
         """Executa uma ferramenta dentro do atacante (rede do lab). Retorna o código."""
         if WEB_MODE:
-            raise LabError("🔒 tool run: rodar ferramentas acontece no atacante do app completo")
+            raise LabError("tool run: rodar ferramentas acontece no atacante do app completo")
         entry = entrypoint or self.tool_entrypoint(name)
         cmdline = [*shlex.split(entry), *[str(a) for a in args]]
         command = (
