@@ -82,11 +82,26 @@ def _is_windows() -> bool:
     return sys.platform == "win32"
 
 
+def _in_venv() -> bool:
+    """True se este Python é um ambiente virtual (venv/pipx)."""
+    return sys.prefix != sys.base_prefix
+
+
 def _bin_dir() -> Path:
-    # Linux/macOS: ~/.local/bin · Windows: %APPDATA%\Python\Scripts (padrão pip)
+    # Linux/macOS: ~/.local/bin · Windows: Scripts do ambiente Python EM USO
     if _is_windows():
-        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(base) / "Python" / "Scripts"
+        if _in_venv():
+            # venv/pipx: Scripts do próprio ambiente — é este Python que o
+            # lançador chama, então o lançador deve viver junto dele
+            # (e não na base de usuário de um Python diferente).
+            return Path(sys.prefix) / "Scripts"
+        # Python "de sistema": base de usuário reportada pelo PRÓPRIO
+        # interpretador (site.getuserbase) — %APPDATA%\Python no instalador
+        # padrão, mas o caminho correto em variantes (ex.: Python da Microsoft
+        # Store, PYTHONUSERBASE customizado). Nada de deduzir por env vars.
+        import site
+
+        return Path(site.getuserbase()) / "Scripts"
     return Path.home() / ".local" / "bin"
 
 
@@ -152,7 +167,6 @@ def _windows_add_user_path(bin_dir: Path) -> bool:
 def cli_install() -> int:
     """Gera um launcher global que chama este Python (-m lab.cli)."""
     bin_dir = _bin_dir()
-    bin_dir.mkdir(parents=True, exist_ok=True)
     launcher = bin_dir / _launcher_name()
     py = sys.executable
     if _is_windows():
@@ -160,15 +174,34 @@ def cli_install() -> int:
     else:
         # aspas simples: um '$' no caminho do interpretador não é expandido
         content = f"#!/bin/sh\nexec '{py}' -m lab.cli \"$@\"\n"
-    launcher.write_text(content)
-    if not _is_windows():
-        launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    try:
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        # newline="": o \r\n do .cmd não pode virar \r\r\n pela tradução
+        # de newline do modo texto no Windows
+        launcher.write_text(content, newline="")
+        if not _is_windows():
+            launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        # não anunciar sucesso sem confirmar que o lançador existe de fato
+        if not launcher.is_file():
+            raise OSError(f"lançador {launcher} não apareceu após a escrita")
+    except OSError as exc:
+        print(f"ERRO: não consegui criar o lançador em {launcher}: {exc}",
+              file=sys.stderr)
+        return 1
 
     print(f"✔ comando 'cyberlab_py' instalado em {launcher}")
     if _path_contains(bin_dir):
         print("  já está no PATH — teste com: cyberlab_py --status")
     elif _is_windows():
-        if _windows_add_user_path(bin_dir):
+        if _in_venv():
+            # o lançador vive nos Scripts do venv: funciona com o venv ativado.
+            # Não adicionamos venvs ao PATH do usuário (podem ser removidas).
+            print(
+                "  ambiente virtual detectado: o comando funciona com o venv "
+                f"ativado ({bin_dir}). Para um comando global, instale com o "
+                "Python do sistema ou use pipx."
+            )
+        elif _windows_add_user_path(bin_dir):
             print("  adicionado ao PATH do usuário — abra um NOVO terminal para valer")
         else:
             print(f"  sem permissão para editar o PATH — adicione manualmente: {bin_dir}")
@@ -180,7 +213,11 @@ def cli_install() -> int:
 def cli_uninstall() -> int:
     launcher = _bin_dir() / _launcher_name()
     if launcher.exists():
-        launcher.unlink()
+        try:
+            launcher.unlink()
+        except OSError as exc:
+            print(f"ERRO: não consegui remover {launcher}: {exc}", file=sys.stderr)
+            return 1
         print(f"✔ comando '{_launcher_name()}' removido de {launcher.parent}")
     else:
         print("comando 'cyberlab_py' não estava instalado")

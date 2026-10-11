@@ -37,7 +37,17 @@ from textual.widgets import (
 from . import __version__
 from .manager import AIRGAP, ATTACKER_NAME, LabManager, Machine
 from .cli import self_update
-from .terminal import Terminal
+
+try:
+    from .terminal import Terminal
+except ImportError as _terminal_import_error:
+    # PTY é POSIX-only: no Windows nativo (sem WSL2) o módulo pode não
+    # importar (ptyprocess exige fcntl/termios). A TUI continua funcional
+    # sem os terminais embutidos — não simulamos suporte que não existe.
+    Terminal = None  # type: ignore[assignment]
+    _TERMINAL_IMPORT_ERROR = _terminal_import_error
+else:
+    _TERMINAL_IMPORT_ERROR = None
 
 _SHELLS = {"attacker": "/bin/bash"}
 
@@ -490,6 +500,20 @@ class CyberLabApp(App[None]):
 
     # -------------------------------------------------------------- terminais
     def open_terminal(self, name: str, shell: str, title: str) -> None:
+        if Terminal is None:
+            # sistema sem suporte a PTY POSIX (ex.: Windows nativo): informar
+            # a limitação e manter a TUI viva — sem fingir um terminal.
+            reason = (
+                f"{type(_TERMINAL_IMPORT_ERROR).__name__}: {_TERMINAL_IMPORT_ERROR}"
+                if _TERMINAL_IMPORT_ERROR
+                else "PTY POSIX indisponível"
+            )
+            self._log(
+                f"[yellow]terminais embutidos indisponíveis neste sistema[/] ({reason}) — "
+                f"gerencie pela TUI e use 'docker exec -it {name} {shell}' por fora "
+                "(no Windows, rode a TUI dentro do WSL2 p/ tê-los)."
+            )
+            return
         pane_id = f"pane-{name}"
         tabs = self.query_one("#terms", TabbedContent)
 
@@ -694,6 +718,14 @@ class CyberLabApp(App[None]):
 
     # ------------------------------------------------------------------ misc
     def action_toggle_focus(self) -> None:
+        if Terminal is None:
+            # sem terminais embutidos: alterna entre a tabela e o log de eventos
+            table = self.query_one("#machines", DataTable)
+            if self.focused is table:
+                self.query_one("#events", RichLog).focus()
+            else:
+                table.focus()
+            return
         tabs = self.query_one("#terms", TabbedContent)
         active = tabs.active_pane
         focused = self.focused
@@ -710,6 +742,8 @@ class CyberLabApp(App[None]):
 
     def on_unmount(self) -> None:
         # mata PTYs remanescentes
+        if Terminal is None:
+            return
         for term in self.query(Terminal):
             term.on_unmount()
 

@@ -11,14 +11,17 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from typing import TYPE_CHECKING
 
 import pyte
-from ptyprocess import PtyProcess
 from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.binding import Binding
 from textual.widget import Widget
+
+if TYPE_CHECKING:  # só p/ type checkers/IDE — em runtime o import é lazy
+    from ptyprocess import PtyProcess
 
 # --------------------------------------------------------------------------
 # cores: pyte entrega nomes ANSI ("red") ou hex de 6 dígitos ("ff0000")
@@ -130,11 +133,20 @@ class Terminal(Widget):
     # ------------------------------------------------------------- ciclo de vida
     def on_mount(self) -> None:
         try:
+            # PTY é POSIX-only (ptyprocess importa fcntl/termios/pty): importar
+            # apenas aqui mantém este módulo — e a TUI inteira — carregável no
+            # Windows nativo, onde os terminais embutidos ficam indisponíveis.
+            from ptyprocess import PtyProcess
+
             self._proc = PtyProcess.spawn(self._argv, dimensions=(24, 80))
         except Exception as exc:  # ex.: docker ausente ou Windows sem pty
             hint = ""
             if sys.platform == "win32":
-                hint = "\r\n[dica: no Windows, rode a TUI via WSL2 p/ terminais embutidos]\r\n"
+                hint = (
+                    "\r\n[no Windows nativo os terminais embutidos não abrem "
+                    "(PTY é POSIX). Rode a TUI dentro do WSL2, ou gerencie pela "
+                    "TUI e use 'docker exec -it <máquina> bash' por fora.]\r\n"
+                )
             with self._buflock:
                 self._stream.feed(
                     f"\r\n[falha ao iniciar terminal: {exc}]{hint}\r\n".encode()
