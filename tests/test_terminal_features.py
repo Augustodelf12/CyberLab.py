@@ -83,6 +83,84 @@ def main() -> int:
     t2._sel_end = (0, 8)
     check("seleção extrai o texto", t2._selected_text() == "um", repr(t2._selected_text()))
 
+    # ---- FIX-9: terminal morto consome teclas (não dispara ações globais da TUI)
+    from textual import events as _events
+
+    t3 = Terminal(["sh"])
+    t3._buflock = threading.Lock()
+    t3._dead = True
+    for key in ("x", "s", "i", "a", "u"):
+        evt = _events.Key(key=key, character=key)
+        t3.on_key(evt)
+        if not evt._stop_propagation:
+            check(f"terminal morto consome tecla {key!r}", False)
+            break
+    else:
+        check("terminal morto consome teclas (x/s/i/a/u não vazam p/ a TUI)", True)
+
+    # ---- FIX-10: resize das telas pyte acontece sob _buflock
+    t4 = Terminal(["sh"])
+    t4._buflock = threading.Lock()
+    errors: list = []
+
+    def _hammer_feed() -> None:
+        try:
+            for _ in range(400):
+                # espelha o _reader real: o feed SEMPRE acontece sob _buflock
+                with t4._buflock:
+                    t4._feed(b"linha de saida\r\n")
+        except Exception as exc:  # pragma: no cover
+            errors.append(exc)
+
+    feeder = threading.Thread(target=_hammer_feed)
+    feeder.start()
+    try:
+        for _ in range(40):
+            t4._resize_terminal(90, 30)
+            t4._resize_terminal(80, 24)
+    finally:
+        feeder.join()
+    check("resize concorrente com feed não corrompe pyte", not errors, repr(errors))
+    check("dimensões aplicadas", (t4._cols, t4._rows) == (80, 24))
+
+    # ---- FIX-9b: bindings priority (ctrl+q) continuam vivos com painel morto
+    # (o widget morto consome teclas comuns, mas não pode prender o usuário)
+    if sys.platform != "win32":
+        import asyncio
+
+        from textual.app import App, ComposeResult
+        from textual.binding import Binding
+
+        leaked: list = []
+
+        class _DeadKeyApp(App):
+            BINDINGS = [
+                Binding("ctrl+q", "quit", "sair", priority=True),
+                Binding("x", "boom", "x"),
+            ]
+
+            def compose(self) -> ComposeResult:
+                yield Terminal(["sh"])
+
+            def action_boom(self) -> None:
+                leaked.append("boom")
+
+        async def _dead_keys() -> bool:
+            app = _DeadKeyApp()
+            async with app.run_test(size=(80, 24)) as pilot:
+                term = app.query_one(Terminal)
+                term.focus()
+                await pilot.pause(0.4)
+                term._dead = True
+                await pilot.press("x")
+                await pilot.pause(0.2)
+                await pilot.press("ctrl+q")
+                await pilot.pause(0.5)
+            return not leaked
+
+        ok = asyncio.run(_dead_keys())
+        check("tecla comum não vaza p/ bindings; ctrl+q (priority) ainda sai", ok, repr(leaked))
+
     print(f"\n{sum(CHECKS)}/{len(CHECKS)} verificações passaram")
     return 0 if all(CHECKS) else 1
 

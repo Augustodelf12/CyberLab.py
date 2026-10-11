@@ -256,6 +256,9 @@ class Terminal(Widget):
     # -------------------------------------------------------------------- input
     def on_key(self, event: events.Key) -> None:
         if self._dead or not self._proc:
+            # terminal encerrado consome a tecla: digitar 'x'/'s'/'i' num
+            # painel morto não pode disparar as ações globais da TUI.
+            event.stop()
             return
         key = event.key
 
@@ -465,17 +468,23 @@ class Terminal(Widget):
 
     # ------------------------------------------------------------------ resize
     def on_resize(self, event: events.Resize) -> None:
-        w = max(event.size.width - 2, 10)   # desconta borda
-        h = max(event.size.height - 2, 3)
+        self._resize_terminal(
+            max(event.size.width - 2, 10),   # desconta borda
+            max(event.size.height - 2, 3),
+        )
+        self.refresh()
+
+    def _resize_terminal(self, w: int, h: int) -> None:
+        """Redimensiona telas pyte + PTY (pyte não é thread-safe: sob lock)."""
         self._cols, self._rows = w, h
-        self._main_screen.resize(lines=h, columns=w)
-        self._alt_screen.resize(lines=h, columns=w)
+        with self._buflock:
+            self._main_screen.resize(lines=h, columns=w)
+            self._alt_screen.resize(lines=h, columns=w)
         if self._proc and self._proc.isalive():
             try:
                 self._proc.setwinsize(h, w)
             except Exception:
                 pass
-        self.refresh()
 
     # ------------------------------------------------------------------ render
     def render(self) -> Text:

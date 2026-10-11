@@ -203,7 +203,12 @@ CYBERLAB_AIRGAP=1 cyberlab_py            # TUI com internet travada
 ```
 
 Nesse modo o toggle de internet é desabilitado (o botão fica "travada"),
-`--update` é bloqueado. Audite a qualquer momento:
+`--update` é bloqueado **e, se qualquer máquina do lab ainda estava ligada a
+uma rede externa (ex.: atacante na bridge/NAT) antes de ativar o airgap, a
+desconexão é forçada** no próximo `--setup`/`--audit`/abertura da TUI.
+
+`--audit` nunca "afrouxa" o relatório no airgap: ele lê o estado real da
+rede no Docker. Audite a qualquer momento:
 
 ```bash
 cyberlab_py --audit
@@ -211,6 +216,35 @@ cyberlab_py --audit
 
 que verifica: rede interna, ausência de portas publicadas no host, atacante
 sem NAT e containers restritos à rede do lab.
+
+### Fronteiras de confiança (o que é "seguro por desenho")
+
+- `cyberlab_py target add <pasta>` **roda `docker build` no código da pasta**:
+  um build roda com privilégio do daemon Docker — só importe Dockerfiles em
+  que você mesmo confiaria para executar. Mesmo contrato de `docker build`.
+- `cyberlab_py tool add` copia para `~/.local/share/cyberlab/tools` e monta
+  em `/root/tools` do atacante (leitura/escrita). Ferramentas adicionadas
+  rodam como root dentro do atacante: só adicione código seu.
+- **Atenção ao volume rw:** um atacante comprometido (ex.: ferramenta
+  importada de terceiros, writeup malicioso, listener explorado) pode
+  **gravar arquivos no seu home** (dentro de `tools/`) como root do
+  container — sem userns-remap esses arquivos aparecem como `root:root`
+  no host. Nunca execute código de `tools/` fora do lab (no host), e
+  desconfie de arquivos que você não criou lá. Para matar essa via por
+  completo, ative `userns-remap` no daemon ou mude o mount para `ro`.
+- Registry de alvos/ferramentas em JSON — o app valida literalmente que a
+  pasta de destino está dentro de `tools/` antes de apagar algo, ignora
+  nomes reservados (`attacker`) e rejeita nomes de travessia (`..`).
+- O laboratório não usa docker socket em nenhum container, nem monta
+  `/proc`/`/sys`, nem publica porta no host.
+- Limites de recursos: alvos nascem com `mem_limit` + `pids_limit=256` e o
+  atacante com `pids_limit=512` — um fork bomb dentro do lab não exaure
+  os PIDs do host.
+- `--update` reinstala a partir de `git+https://…` (branch default, sem
+  verificação de integridade além do TLS). O mecanismo tem a mesma
+  confiança de um `pip install` manual: um repositório upstream
+  comprometido compromete o host. `CYBERLAB_UPDATE_URL` sobrescreve a
+  fonte — trate essa env como código confiável.
 
 ## Estrutura
 

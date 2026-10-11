@@ -45,6 +45,7 @@ def cli_setup(rebuild: bool = False) -> int:
         print("• todas as imagens já existem (--rebuild força)")
     print("• garantindo máquina atacante…")
     m.ensure_attacker()
+    m.enforce_airgap()
     print("✔ lab pronto — rode  cyberlab_py  para abrir a TUI")
     return 0
 
@@ -101,6 +102,53 @@ def _path_contains(bin_dir: Path) -> bool:
     return str(bin_dir) in parts
 
 
+def _windows_add_user_path(bin_dir: Path) -> bool:
+    """Adiciona bin_dir ao Path do USUÁRIO via registro.
+
+    O ``setx`` trunca valores em 1024 caracteres (corrompendo o PATH) e
+    funde as entradas do sistema no usuário; o registro edita só a variável
+    correta e sem limite de tamanho.
+    """
+    try:
+        import winreg
+    except ImportError:
+        return False
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, "Environment", 0,
+            winreg.KEY_READ | winreg.KEY_WRITE,
+        ) as key:
+            try:
+                current, vtype = winreg.QueryValueEx(key, "Path")
+            except FileNotFoundError:
+                current, vtype = "", winreg.REG_EXPAND_SZ
+            parts = [p for p in str(current).split(os.pathsep) if p]
+            want = str(bin_dir)
+            if any(p.rstrip("\\").lower() == want.lower() for p in parts):
+                return True
+            winreg.SetValueEx(
+                key, "Path", 0, vtype or winreg.REG_EXPAND_SZ,
+                os.pathsep.join([*parts, want]),
+            )
+    except OSError:
+        return False
+    # avisa o sistema (Explorer/terminais novos relêem a variável)
+    try:
+        import ctypes
+
+        result = ctypes.c_ulong()
+        ctypes.windll.user32.SendMessageTimeoutW(
+            0xFFFF,  # HWND_BROADCAST
+            0x1A,    # WM_SETTINGCHANGE
+            0, ctypes.c_wchar_p("Environment"),
+            0x2,     # SMTO_ABORTIFHUNG
+            5000, ctypes.byref(result),
+        )
+    except Exception:
+        pass
+    return True
+
+
 def cli_install() -> int:
     """Gera um launcher global que chama este Python (-m lab.cli)."""
     bin_dir = _bin_dir()
@@ -110,25 +158,20 @@ def cli_install() -> int:
     if _is_windows():
         content = f'@echo off\r\n"{py}" -m lab.cli %*\r\n'
     else:
-        content = f'#!/bin/sh\nexec "{py}" -m lab.cli "$@"\n'
+        # aspas simples: um '$' no caminho do interpretador não é expandido
+        content = f"#!/bin/sh\nexec '{py}' -m lab.cli \"$@\"\n"
     launcher.write_text(content)
     if not _is_windows():
         launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     print(f"✔ comando 'cyberlab_py' instalado em {launcher}")
     if _path_contains(bin_dir):
-        print("  já está no PATH — teste com: cyberlab_py status")
+        print("  já está no PATH — teste com: cyberlab_py --status")
     elif _is_windows():
-        try:
-            import subprocess
-
-            subprocess.run(
-                ["setx", "PATH", os.environ.get("PATH", "") + os.pathsep + str(bin_dir)],
-                check=False, capture_output=True,
-            )
+        if _windows_add_user_path(bin_dir):
             print("  adicionado ao PATH do usuário — abra um NOVO terminal para valer")
-        except Exception:
-            print(f"  se não funcionar, adicione ao PATH manualmente: {bin_dir}")
+        else:
+            print(f"  sem permissão para editar o PATH — adicione manualmente: {bin_dir}")
     else:
         print('  adicione ao ~/.bashrc: export PATH="$HOME/.local/bin:$PATH"')
     return 0
@@ -177,6 +220,7 @@ def cli_update() -> int:
 
 def cli_audit() -> int:
     m = _manager()
+    m.enforce_airgap()  # airgap precisa ser um fato de rede, não um rótulo
     report = m.audit_isolation()
     checks = [
         ("rede_internal", "rede do lab é internal (sem rota para fora)"),
@@ -260,7 +304,11 @@ def cmd_tool(args) -> int:
             return 1
         return code or 0
     elif action == "remove":
-        m.remove_tool(args.name)
+        try:
+            m.remove_tool(args.name)
+        except Exception as exc:
+            print(f"ERRO: {exc}", file=sys.stderr)
+            return 1
         print(f"✔ ferramenta '{args.name}' removida")
     else:
         return 2

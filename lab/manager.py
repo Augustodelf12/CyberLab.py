@@ -155,6 +155,8 @@ class LabManager:
     def image_specs(self) -> dict[str, dict]:
         specs: dict[str, dict] = {"attacker": ATTACKER_SPEC}
         specs.update(self.all_targets())
+        # o spec da atacante tem precedência absoluta sobre o registry
+        specs["attacker"] = ATTACKER_SPEC
         return specs
 
     def missing_images(self) -> list[str]:
@@ -217,26 +219,41 @@ class LabManager:
         result.sort(key=lambda m: (m.kind != "attacker", m.name))
         return result
 
-    def ensure_attacker(self) -> None:
-        """Garante que o container atacante existe, roda e monta o TOOLS_DIR atual."""
-        # data dir + ferramentas de exemplo (idempotente)
-        ensure_user_dirs()
+    def _sync_example_tools(self) -> None:
+        """Garante os exemplos embutidos no TOOLS_DIR (idempotente).
+
+        Um symlink plantado dentro do volume (ex.: atacante comprometido)
+        não pode redirecionar a cópia para fora do TOOLS_DIR — symlinks são
+        removidos antes de copiar (CWE-59).
+        """
         TOOLS_DIR.mkdir(parents=True, exist_ok=True)
         for example in EXAMPLES_DIR.glob("*"):
             target = TOOLS_DIR / example.name
+            if target.is_symlink():
+                target.unlink()
             if not target.exists():
                 try:
                     shutil.copy(example, target)
                 except OSError:
                     pass
 
+    def ensure_attacker(self) -> None:
+        """Garante que o container atacante existe, roda e monta o TOOLS_DIR atual."""
+        # data dir + ferramentas de exemplo (idempotente)
+        ensure_user_dirs()
+        self._sync_example_tools()
+
         volume_ok = False
         try:
             c = self.client.containers.get(ATTACKER_NAME)
+            tools_real = TOOLS_DIR.resolve()
             for mount in c.attrs.get("Mounts", []):
                 if mount.get("Type") == "bind":
-                    src = Path(mount.get("Source", ""))
-                    if src == TOOLS_DIR and mount.get("Destination") == "/root/tools":
+                    # o Docker reporta o caminho RESOLVIDO do bind; comparar
+                    # sem resolver fazia recriar o atacante a cada startup
+                    # quando ~/.local/share é um symlink.
+                    src = Path(mount.get("Source", "")).resolve()
+                    if src == tools_real and mount.get("Destination") == "/root/tools":
                         volume_ok = True
             if volume_ok:
                 if c.status != "running":
@@ -253,6 +270,7 @@ class LabManager:
             network=NETWORK_NAME,
             volumes={str(TOOLS_DIR): {"bind": "/root/tools", "mode": "rw"}},
             cap_add=["NET_RAW", "NET_ADMIN"],
+            pids_limit=512,          # hardening: fork bomb não derruba o host
             stdin_open=True,
             tty=True,
             labels={LABEL: "1", f"{LABEL}.kind": "attacker"},
@@ -275,6 +293,9 @@ class LabManager:
             hostname=f"{kind}-{idx}",
             network=NETWORK_NAME,
             mem_limit=spec.get("mem_limit", "128m"),
+            # hardening anti fork-bomb; 0/None no registry significaria
+            # "sem limite" — nunca aceito
+            pids_limit=int(spec.get("pids_limit") or 256),
             stdin_open=True,
             tty=True,
             labels={LABEL: "1", f"{LABEL}.kind": kind},
@@ -291,8 +312,8 @@ class LabManager:
         self.client.containers.get(name).remove(force=True)
         self._prev_stats.pop(name, None)
 
-    def exec(self, name: str, cmd: list[str]) -> str:
-        """Executa comando não-interativo e retorna a saída (para testes)."""
+    def exec(self, name: str, cmd: list[str]) -> tuple[str, int]:
+        """Executa comando não-interativo e retorna (saída, código)."""
         code, out = self.client.containers.get(name).exec_run(cmd)
         return out.decode("utf-8", "replace").strip(), code
 
@@ -306,19 +327,30 @@ class LabManager:
 
     def _save_registry(self, reg: dict) -> None:
         REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        REGISTRY_PATH.write_text(json.dumps(reg, indent=2, ensure_ascii=False))
+        # escrita atômica: um crash no meio do save não corrompe o registry
+        tmp = REGISTRY_PATH.parent / (REGISTRY_PATH.name + ".tmp")
+        tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False))
+        os.replace(tmp, REGISTRY_PATH)
 
     @staticmethod
     def _slug(name: str) -> str:
         slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", name.strip()).strip("-")
-        return slug or "app"
+        if not slug:
+            return "app"
+        if slug.strip(".") == "":
+            # "." / ".." / "…" são componentes de travessia de diretório —
+            # nunca podem virar nome de pasta no TOOLS_DIR (rmtree/copytree).
+            raise LabError(f"nome inválido para alvo/ferramenta: {name!r}")
+        return slug
 
     def all_targets(self) -> dict[str, dict]:
         """Alvos built-in + custom (registry.json). Built-in têm precedência."""
         reg = self._load_registry()
         merged = dict(TARGETS)
         for name, spec in reg.get("targets", {}).items():
-            if name not in merged and isinstance(spec, dict):
+            # "attacker" é reservado: um registry adulterado não pode
+            # fazer sombrear/substituir o spec da máquina atacante.
+            if name not in merged and name != "attacker" and isinstance(spec, dict):
                 merged[name] = spec
         return merged
 
@@ -330,27 +362,31 @@ class LabManager:
         name = self._slug(name or context.name)
         if name in TARGETS:
             raise LabError(f"'{name}' conflita com um alvo built-in")
+        if name == "attacker":
+            raise LabError("'attacker' é um nome reservado")
         image = f"cyberlab/custom-{name}:latest"
         self.client.images.build(
             path=str(context), dockerfile="Dockerfile",
             tag=image, rm=True, labels={LABEL: "1"},
         )
-        reg = self._load_registry()
-        reg.setdefault("targets", {})[name] = {
-            "image": image,
-            "desc": f"alvo custom '{name}' ({context.name})",
-            "services": "custom",
-            "mem_limit": "128m",
-            "context": str(context),
-            "dockerfile": "Dockerfile",
-        }
-        self._save_registry(reg)
+        with self._lock:  # read-modify-write atômico entre workers da TUI
+            reg = self._load_registry()
+            reg.setdefault("targets", {})[name] = {
+                "image": image,
+                "desc": f"alvo custom '{name}' ({context.name})",
+                "services": "custom",
+                "mem_limit": "128m",
+                "context": str(context),
+                "dockerfile": "Dockerfile",
+            }
+            self._save_registry(reg)
         return name
 
     def remove_target(self, name: str) -> None:
-        reg = self._load_registry()
-        spec = reg.get("targets", {}).pop(name, None)
-        self._save_registry(reg)
+        with self._lock:
+            reg = self._load_registry()
+            spec = reg.get("targets", {}).pop(name, None)
+            self._save_registry(reg)
         if spec:
             try:
                 self.client.images.remove(spec["image"], force=True)
@@ -365,14 +401,17 @@ class LabManager:
         name = self._slug(name or src.name)
         TOOLS_DIR.mkdir(parents=True, exist_ok=True)
         dest = TOOLS_DIR / name
+        if dest.is_symlink():
+            dest.unlink()  # nunca rmtree através de um symlink plantado
         if dest.exists():
             shutil.rmtree(dest)
         # symlinks=True: NÃO segue links simbólicos (evita copiar conteúdo fora
         # da pasta de origem para dentro do volume montado no atacante).
         shutil.copytree(src, dest, symlinks=True, ignore_dangling_symlinks=True)
-        reg = self._load_registry()
-        reg.setdefault("tools", {})[name] = {"path": str(src), "synced": str(dest)}
-        self._save_registry(reg)
+        with self._lock:  # read-modify-write atômico entre workers da TUI
+            reg = self._load_registry()
+            reg.setdefault("tools", {})[name] = {"path": str(src), "synced": str(dest)}
+            self._save_registry(reg)
         return name
 
     def list_tools(self) -> list[str]:
@@ -380,13 +419,25 @@ class LabManager:
         return sorted(reg.get("tools", {}).keys())
 
     def remove_tool(self, name: str) -> None:
-        reg = self._load_registry()
-        info = reg.get("tools", {}).pop(name, None)
-        self._save_registry(reg)
-        if info and info.get("synced"):
-            dest = Path(info["synced"])
-            if dest.exists():
-                shutil.rmtree(dest)
+        with self._lock:
+            reg = self._load_registry()
+            info = reg.get("tools", {}).get(name)
+            dest: Path | None = None
+            if info and info.get("synced"):
+                dest = Path(info["synced"]).resolve()
+                root = TOOLS_DIR.resolve()
+                # defense in depth: o registry é um arquivo do usuário — um valor
+                # adulterado não pode transformar 'tool remove' em rmtree arbitrário.
+                if root != dest and root not in dest.parents:
+                    # valida ANTES de mutar o registry: a entrada suspeita
+                    # permanece registrada para inspeção do usuário.
+                    raise LabError(
+                        f"caminho '{info['synced']}' está fora de {TOOLS_DIR} — remoção ignorada"
+                    )
+            reg.get("tools", {}).pop(name, None)
+            self._save_registry(reg)
+        if dest is not None and dest.exists():
+            shutil.rmtree(dest)
 
     def tool_entrypoint(self, name: str) -> str:
         """Detecta um entrypoint padrão na ferramenta montada no atacante."""
@@ -419,10 +470,14 @@ class LabManager:
     # --------------------------------------------------------- internet NAT
     def set_internet(self, enabled: bool) -> bool:
         """Conecta/desconecta o atacante da rede bridge (NAT -> internet)."""
-        if AIRGAP:
-            # Em modo airgap, nunca permite saída de rede.
-            return False
-        bridge = self.client.networks.get("bridge")
+        if AIRGAP and enabled:
+            # Em modo airgap, nunca permite LIGAR a saída de rede.
+            # Desligar continua permitido (é exatamente o que o airgap quer).
+            return self.internet_enabled()
+        try:
+            bridge = self.client.networks.get("bridge")
+        except (NotFound, APIError):
+            return self.internet_enabled()
         current = self.internet_enabled()
         try:
             if enabled and not current:
@@ -434,13 +489,34 @@ class LabManager:
         return self.internet_enabled()
 
     def internet_enabled(self) -> bool:
-        if AIRGAP:
-            return False
+        """Estado REAL da rede: o atacante está ligado à bridge (NAT)?
+
+        Não depende do modo airgap — o audit precisa enxergar a verdade.
+        """
         try:
             c = self.client.containers.get(ATTACKER_NAME)
         except NotFound:
             return False
         return "bridge" in c.attrs["NetworkSettings"]["Networks"]
+
+    def enforce_airgap(self) -> None:
+        """AIRGAP: desconecta QUALQUER container do lab de redes externas.
+
+        O modo é decidido pela env no início do processo, mas o estado de
+        rede persiste no Docker: um atacante conectado à internet antes do
+        airgap continuaria com NAT se ninguém desconectasse. Vale para
+        qualquer rede fora de cyberlab-net — não apenas a bridge do
+        atacante — para que não exista via secundária de NAT/LAN.
+        """
+        if not AIRGAP:
+            return
+        for c in self._lab_containers():
+            extras = set(c.attrs["NetworkSettings"]["Networks"].keys()) - {NETWORK_NAME}
+            for extra in extras:
+                try:
+                    self.client.networks.get(extra).disconnect(c.name, force=True)
+                except (NotFound, APIError):
+                    pass
 
     # ----------------------------------------------------------- isolamento
     def audit_isolation(self) -> dict[str, bool]:

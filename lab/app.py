@@ -316,7 +316,13 @@ class CyberLabApp(App[None]):
     # ------------------------------------------------------------------ logs
     def _write_log(self, msg: str) -> None:
         stamp = datetime.now().strftime("%H:%M:%S")
-        self.query_one("#events", RichLog).write(Text(f"[{stamp}] {msg}"))
+        # Text(...) não interpreta markup (as tags apareceriam literais);
+        # from_markup colore, e o fallback evita que um '[' num path quebre.
+        try:
+            line = Text.from_markup(f"[{stamp}] {msg}")
+        except Exception:
+            line = Text(f"[{stamp}] {msg}")
+        self.query_one("#events", RichLog).write(line)
 
     def _log(self, msg: str) -> None:
         """Thread-safe: usável de workers."""
@@ -336,6 +342,7 @@ class CyberLabApp(App[None]):
             self._log(f"rede isolada pronta ({self._net_desc()})")
             self.manager.ensure_attacker()
             self._log("máquina atacante pronta")
+            self.manager.enforce_airgap()
         except Exception as exc:
             self._log(f"[bold red]falha no setup:[/] {exc}")
             return
@@ -571,8 +578,14 @@ class CyberLabApp(App[None]):
     @work(thread=True)
     def _update_app(self) -> None:
         self._log("[bold cyan]atualizando o app…[/] (pode levar alguns minutos)")
-        self_update(log=self._log)
-        self._log("[bold green]atualização concluída[/] — saia (ctrl+q) e abra o cyberlab_py de novo")
+        code = self_update(log=self._log)
+        if code == 0:
+            self._log("[bold green]atualização concluída[/] — saia (ctrl+q) e abra o cyberlab_py de novo")
+        else:
+            self._log(
+                f"[bold red]atualização não concluída[/] (código {code}) — "
+                "o app segue na versão atual"
+            )
 
     @work(thread=True)
     def _spawn_target(self, kind: str) -> None:
