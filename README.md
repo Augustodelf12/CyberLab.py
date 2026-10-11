@@ -141,11 +141,13 @@ a modo de cursor. Para copiar a saída: **arraste com o mouse** para selecionar 
 pressione **`Ctrl+Shift+C`** (sem seleção, copia a linha do cursor). Cole com
 **`Ctrl+Shift+V`**.
 
-> **Terminal embutido no Windows:** a TUI e o dashboard funcionam nativos,
-> mas as abas de terminal usam PTY (POSIX) e não abrem no Windows nativo.
-> Para a experiência completa rode a TUI dentro do **WSL 2** (onde o Docker
-> também fica). Alternativa: gerencie pela TUI e abra terminais por fora
-> (`docker exec -it cyberlab-attacker bash`) — o dashboard segue monitorando.
+> **Terminal embutido no Windows:** a TUI e as abas de terminal funcionam
+> **nativos** — o pseudo-terminal do Windows (ConPTY) entra automaticamente
+> via dependência `pywinpty` (instalada pelo pip em Windows; no Linux/macOS o
+> app usa `ptyprocess`). Basta ter o Docker Desktop com o daemon rodando.
+> WSL 2 continua opcional (recomendado pelo desempenho do Docker). Se alguma
+> aba não abrir, gerencie pela TUI e use `docker exec -it <máquina> bash`
+> por fora — o dashboard segue monitorando.
 
 ## Treinar / testar suas ferramentas
 
@@ -284,7 +286,9 @@ CyberLab.py/
   `cyberlab_py --install` para criar o launcher global; feche e reabra o terminal.
 - **VS Code (Flatpak)** no Linux: o terminal embutido do editor é um sandbox;
   rode a TUI no terminal do sistema para acessar o Docker do host.
-- **Terminal embutido não abre (Windows)**: use WSL 2 ou `docker exec -it` por fora.
+- **Terminal embutido não abre (Windows)**: instale o backend de PTY
+  (`pip install pywinpty`) ou verifique se o Docker Desktop está rodando;
+  alternativamente `docker exec -it <máquina> bash` por fora.
 - **Lentidão no primeiro uso**: é o build das imagens (`--setup`); depois os
   containers sobem em segundos.
 

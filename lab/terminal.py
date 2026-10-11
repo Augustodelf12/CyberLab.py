@@ -8,7 +8,6 @@ alternate screen (nano/vim/less) e application cursor mode (setas do nano).
 """
 from __future__ import annotations
 
-import os
 import sys
 import threading
 from typing import TYPE_CHECKING
@@ -87,6 +86,20 @@ _CTRL_SEQS: dict[bytes, str] = {
 }
 
 
+def _pty_backend():
+    """Classe de pseudo-terminal da plataforma (import lazy).
+
+    POSIX (Linux/macOS) usa ``ptyprocess``; Windows nativo usa ``pywinpty``
+    (ConPTY). Ambas expõem ``PtyProcess.spawn/read/write/terminate/setwinsize``
+    — as diferenças (str vs bytes) são normalizadas neste módulo.
+    """
+    if sys.platform == "win32":
+        from winpty import PtyProcess  # ConPTY nativo do Windows
+    else:
+        from ptyprocess import PtyProcess
+    return PtyProcess
+
+
 class Terminal(Widget):
     """Um terminal interativo (xterm minimamente viável) embutido na TUI."""
 
@@ -133,19 +146,16 @@ class Terminal(Widget):
     # ------------------------------------------------------------- ciclo de vida
     def on_mount(self) -> None:
         try:
-            # PTY é POSIX-only (ptyprocess importa fcntl/termios/pty): importar
-            # apenas aqui mantém este módulo — e a TUI inteira — carregável no
-            # Windows nativo, onde os terminais embutidos ficam indisponíveis.
-            from ptyprocess import PtyProcess
-
-            self._proc = PtyProcess.spawn(self._argv, dimensions=(24, 80))
-        except Exception as exc:  # ex.: docker ausente ou Windows sem pty
+            # PTY é lazy: POSIX (ptyprocess) ou Windows nativo (pywinpty/ConPTY)
+            pty_cls = _pty_backend()
+            self._proc = pty_cls.spawn(self._argv, dimensions=(24, 80))
+        except Exception as exc:  # ex.: docker ausente ou backend não instalado
             hint = ""
-            if sys.platform == "win32":
+            if isinstance(exc, ImportError):
+                pkg = "pywinpty" if sys.platform == "win32" else "ptyprocess"
                 hint = (
-                    "\r\n[no Windows nativo os terminais embutidos não abrem "
-                    "(PTY é POSIX). Rode a TUI dentro do WSL2, ou gerencie pela "
-                    "TUI e use 'docker exec -it <máquina> bash' por fora.]\r\n"
+                    f"\r\n[backend de PTY ausente — instale com: pip install {pkg}"
+                    " (ou reinstale o CyberLab: cyberlab_py --update)]\r\n"
                 )
             with self._buflock:
                 self._stream.feed(
@@ -166,14 +176,15 @@ class Terminal(Widget):
 
     # ------------------------------------------------------------------- leitura
     def _reader(self) -> None:
-        fd = self._proc.fd
         while not self._dead:
             try:
-                chunk = os.read(fd, 65536)
-            except (OSError, ValueError):
-                break
+                chunk = self._proc.read(65536)  # ptyprocess e pywinpty têm read()
+            except (EOFError, OSError, ValueError):
+                break  # EOF real (o backend levanta EOFError no fim do fluxo)
+            if isinstance(chunk, str):
+                chunk = chunk.encode("utf-8", "replace")  # pywinpty devolve str
             if not chunk:
-                break
+                continue  # heartbeat vazio do pywinpty NÃO é fim de stream
             with self._buflock:
                 self._feed(chunk)
             try:
@@ -328,9 +339,14 @@ class Terminal(Widget):
     def _write(self, data: bytes) -> None:
         if self._scroll > 0:  # digitar volta à posição de seguir o fim
             self._shift_scroll(-self._scroll)
+        if self._proc is None:
+            return
+        payload: bytes | str = data
+        if sys.platform == "win32":
+            payload = data.decode("utf-8", "replace")  # pywinpty escreve str
         try:
-            self._proc.write(data)
-        except (OSError, ValueError):
+            self._proc.write(payload)
+        except (EOFError, OSError, ValueError):
             self._dead = True
 
     def on_paste(self, event: events.Paste) -> None:

@@ -123,6 +123,30 @@ def main() -> int:
     check("resize concorrente com feed não corrompe pyte", not errors, repr(errors))
     check("dimensões aplicadas", (t4._cols, t4._rows) == (80, 24))
 
+    # ---- FIX-11: PTY real de ponta a ponta (reader portátil via proc.read())
+    if sys.platform != "win32":
+        import time as _time
+
+        t5 = Terminal(["sh"])
+        t5._buflock = threading.Lock()
+        t5.on_mount()
+        marker = "PORTABLE_READER_OK"
+        t5._write(f"echo {marker}\r".encode())
+        deadline = _time.monotonic() + 6
+        seen = False
+        while _time.monotonic() < deadline:
+            if marker in "\n".join(t5._main_screen.display):
+                seen = True
+                break
+            _time.sleep(0.05)
+        check("PTY real: echo renderiza via reader portátil (proc.read())",
+              seen, "timeout" if not seen else "")
+        t5.on_unmount()
+        if t5._read_thread is not None:
+            t5._read_thread.join(timeout=3)
+        check("PTY real: reader encerra após terminate",
+              not t5._read_thread or not t5._read_thread.is_alive())
+
     # ---- FIX-9b: bindings priority (ctrl+q) continuam vivos com painel morto
     # (o widget morto consome teclas comuns, mas não pode prender o usuário)
     if sys.platform != "win32":

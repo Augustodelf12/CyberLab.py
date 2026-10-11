@@ -510,8 +510,9 @@ class CyberLabApp(App[None]):
             )
             self._log(
                 f"[yellow]terminais embutidos indisponíveis neste sistema[/] ({reason}) — "
-                f"gerencie pela TUI e use 'docker exec -it {name} {shell}' por fora "
-                "(no Windows, rode a TUI dentro do WSL2 p/ tê-los)."
+                f"gerencie pela TUI e use 'docker exec -it {name} {shell}' por fora. "
+                "Backend de PTY ausente? 'pip install pywinpty' (Windows) ou "
+                "'pip install ptyprocess' (Linux/macOS)."
             )
             return
         pane_id = f"pane-{name}"

@@ -153,11 +153,12 @@ def test_terminal_importable_without_ptyprocess():
             sys.modules["ptyprocess"] = saved
 
 
-def test_terminal_mount_reports_windows_limitation():
-    """Painel de terminal sem PTY: mensagem informativa + não derruba a TUI."""
+def test_terminal_mount_reports_missing_backend():
+    """Painel de terminal sem backend de PTY: mensagem + causa, sem crash."""
     saved_platform = sys.platform
     sys.modules.pop("lab.terminal", None)
     sys.modules["ptyprocess"] = None
+    sys.modules["winpty"] = None  # no win32 o backend é o pywinpty
     try:
         import lab.terminal as tmod
 
@@ -165,15 +166,107 @@ def test_terminal_mount_reports_windows_limitation():
         sys.platform = "win32"
         term.on_mount()
         shown = "\n".join(term._main_screen.display)
-        check("on_mount sem PTY marca o painel como encerrado", term._dead)
+        check("on_mount sem backend marca o painel como encerrado", term._dead)
         check("mensagem de falha visível no painel",
               "falha ao iniciar terminal" in shown, shown[:60])
-        check("limitação do Windows nativo explicada",
-              "Windows nativo" in shown and "WSL2" in shown)
+        check("aponta o backend faltante (pywinpty no Windows)",
+              "pywinpty" in shown)
         check("não simula PTY (nenhum processo criado)", term._proc is None)
     finally:
         sys.platform = saved_platform
         sys.modules.pop("ptyprocess", None)
+        sys.modules.pop("winpty", None)
+        _purge_module_tree("lab.terminal")
+        import lab.terminal  # noqa: F401  — restaura o módulo real
+
+
+# ----------------------------------------------- backend Windows: winpty (ConPTY)
+class _FakeWinProc:
+    """Imita winpty.PtyProcess: read() devolve STR (com heartbeat vazio)."""
+
+    def __init__(self, script: list) -> None:
+        self._script = list(script)
+        self.alive = True
+        self.written: list = []
+        self.winsize: tuple | None = None
+        self.terminated = False
+        self.exitstatus = 0
+
+    def read(self, size=1024):
+        if self._script:
+            return self._script.pop(0)  # str, como o pywinpty real
+        raise EOFError("Pty is closed")
+
+    def write(self, s) -> None:
+        self.written.append(s)
+
+    def isalive(self) -> bool:
+        return self.alive
+
+    def terminate(self, force=False) -> None:
+        self.terminated = True
+        self.alive = False
+        self._script = []
+
+    def setwinsize(self, rows, cols) -> None:
+        self.winsize = (rows, cols)
+
+
+def test_terminal_windows_uses_winpty_backend():
+    """No Windows o backend é o pywinpty (ConPTY) — e str/bytes são normalizados."""
+    import time as _time
+
+    spawned: dict = {}
+    fake = types.ModuleType("winpty")
+
+    class FakePtyProcess:
+        @classmethod
+        def spawn(cls, argv, cwd=None, env=None, dimensions=(24, 80)):
+            spawned["argv"] = list(argv)
+            spawned["dimensions"] = dimensions
+            # 1º item vazio: heartbeat do pywinpty que NÃO pode encerrar o reader
+            spawned["proc"] = _FakeWinProc(["", "hello-from-conpty\r\n"])
+            return spawned["proc"]
+
+    fake.PtyProcess = FakePtyProcess
+    saved_platform = sys.platform
+    sys.platform = "win32"
+    _purge_module_tree("lab.terminal")
+    sys.modules["winpty"] = fake
+    try:
+        import lab.terminal as tmod
+
+        term = tmod.Terminal(["docker", "exec", "-it", "x", "sh"])
+        term.on_mount()
+        check("win32: backend winpty usado (argv correto)",
+              spawned.get("argv") == ["docker", "exec", "-it", "x", "sh"],
+              str(spawned.get("argv")))
+        check("win32: dimensions (24, 80) passadas ao spawn",
+              spawned.get("dimensions") == (24, 80))
+        # espera o reader consumir o str do ConPTY (mesmo após heartbeat vazio)
+        deadline = _time.monotonic() + 3
+        seen = False
+        while _time.monotonic() < deadline:
+            if "hello-from-conpty" in "\n".join(term._main_screen.display):
+                seen = True
+                break
+            _time.sleep(0.05)
+        check("saída str do winpty vira bytes e renderiza", seen)
+        term._write(b"ls -la\r")
+        proc: _FakeWinProc = spawned["proc"]
+        check("write no win32 converte bytes -> str", proc.written and
+              isinstance(proc.written[-1], str) and proc.written[-1] == "ls -la\r",
+              repr(proc.written[-1:]))
+        term._resize_terminal(100, 30)
+        check("setwinsize(rows, cols) respeitado", proc.winsize == (30, 100),
+              str(proc.winsize))
+        term.on_unmount()
+        check("terminate(force) chamado no unmount", proc.terminated)
+    except Exception as exc:
+        check("backend winpty simulado funciona de ponta a ponta", False, repr(exc))
+    finally:
+        sys.platform = saved_platform
+        sys.modules.pop("winpty", None)
         _purge_module_tree("lab.terminal")
         import lab.terminal  # noqa: F401  — restaura o módulo real
 
@@ -409,7 +502,8 @@ def main() -> int:
         test_cli_help_works,
         test_cli_status_reports_daemon_not_fcntl,
         test_terminal_importable_without_ptyprocess,
-        test_terminal_mount_reports_windows_limitation,
+        test_terminal_mount_reports_missing_backend,
+        test_terminal_windows_uses_winpty_backend,
         test_app_degrades_without_terminal,
         test_bin_dir_selection,
         test_install_posix_functional_and_idempotent,
