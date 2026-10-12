@@ -68,6 +68,12 @@ pip install git+https://github.com/Augustodelf12/CyberLab.py
 cyberlab_py --install     # se 'cyberlab_py' não estiver no PATH
 ```
 
+> `--install` usa o caminho do **Python que está rodando**: com o Python do
+> sistema o lançador vai para `%APPDATA%\Python\Scripts` (e entra no PATH do
+> usuário automaticamente); dentro de um venv, fica nos `Scripts` do próprio
+> venv (funciona com ele ativado). Para um comando global, prefira `pipx`
+> ou o Python do sistema.
+
 ### Primeiro uso
 
 ```bash
@@ -83,6 +89,14 @@ python3 -m venv .venv
 .venv/bin/pip install -e .
 .venv/bin/cyberlab_py --setup
 ```
+
+### Modo web (demonstração do site)
+
+Com `CYBERLAB_WEB_MODE=1` (o site oficial define isso ao carregar a versão
+web), o lab roda **reduzido**: apenas o atacante e o alvo `webvuln` podem
+existir; os demais alvos e os comandos `target add`, `tool add` e `tool run`
+são recusados com um convite para instalar o app completo. É uma limitação
+de produto para a demo — fora do modo web nada muda.
 
 ## Uso (CLI)
 
@@ -252,31 +266,45 @@ sem NAT e containers restritos à rede do lab.
 
 ```
 CyberLab.py/
-├── pyproject.toml            # empacotamento (entry point cyberlab_py)
+├── pyproject.toml            # empacotamento (deps por plataforma: ptyprocess/pywinpty)
 ├── main.py                   # shim p/ rodar da fonte (dev)
 ├── requirements.txt
 ├── .gitignore
 ├── lab/
 │   ├── cli.py                # CLI (target/tool/setup/install…)
 │   ├── manager.py            # Docker SDK: rede, containers, métricas, registry
-│   ├── terminal.py           # widget Terminal (PTY + pyte + scrollback)
+│   ├── terminal.py           # widget Terminal (PTY portátil + pyte + scrollback)
 │   ├── paths.py              # assets embutidos + data dir do usuário
 │   ├── app.py                # TUI (Textual)
 │   ├── docker/               # Dockerfiles do atacante e dos alvos (package data)
 │   └── examples/             # ferramentas de exemplo
 ├── docs/                     # writeups de hacking de todos os labs
 ├── site/                     # landing page de divulgação (HTML/CSS)
-└── tests/                    # testes de fumaça (manager, TUI, terminal, custom)
+└── tests/                    # testes: segurança, Windows-compat, modo web (CI)
+                              #        + fumaça com Docker real (manager/TUI/terminal)
 ```
 
 ### Rodar os testes (desenvolvimento)
 
+**Sem Docker (rodam em qualquer máquina/CI):**
+
 ```bash
-.venv/bin/python tests/test_manager.py    # cria/destrói alvos de verdade
-.venv/bin/python tests/test_tui.py        # TUI headless (modo run_test)
-.venv/bin/python tests/test_terminal.py   # terminal embutido + scrollback
-.venv/bin/python tests/test_custom.py     # alvos/ferramentas custom
+python tests/test_security.py         # regressões de segurança (airgap, registry, slug…)
+python tests/test_windows_compat.py  # portabilidade Windows + instalador (mocks)
+python tests/test_web_mode.py        # bloqueios do modo web do site
+python tests/test_terminal_features.py  # widget Terminal sem TUI (cores, resize, PTY real)
 ```
+
+**Com Docker rodando (fumaça de ponta a ponta):**
+
+```bash
+python tests/test_manager.py         # cria/destrói alvos de verdade
+python tests/test_tui.py             # TUI headless (modo run_test)
+python tests/test_terminal.py        # terminal embutido + scrollback no atacante
+python tests/test_custom.py          # alvos/ferramentas custom
+```
+
+Ou tudo de uma vez com `pytest tests/`.
 
 ## Problemas comuns
 
@@ -291,6 +319,50 @@ CyberLab.py/
   alternativamente `docker exec -it <máquina> bash` por fora.
 - **Lentidão no primeiro uso**: é o build das imagens (`--setup`); depois os
   containers sobem em segundos.
+
+---
+
+## Changelog
+
+### v1.1.5a0 — Windows nativo de ponta a ponta
+
+- **Terminais embutidos nativos no Windows** via ConPTY (`pywinpty`): o
+  backend de PTY agora é selecionado por plataforma (Linux/macOS usam
+  `ptyprocess`, Windows usa `pywinpty`) — instalar e usar, sem WSL2.
+- **CLI e TUI rodando em qualquer SO**: `fcntl`/PTY deixou de ser requisito
+  de importação; sem backend disponível, a TUI avisa e segue gerenciável.
+- **Instalador do comando global corrigido**: caminho derivado do Python em
+  uso (sistema x venv), criação verificada antes de anunciar sucesso,
+  idempotente, e o PATH do usuário é preservado (sem `setx`).
+- **Modo web do site** (`CYBERLAB_WEB_MODE=1`): lab reduzido para a demo
+  (atacante + webvuln), com convite para instalar o app completo.
+- Testes novos: `test_windows_compat.py` (42 verificações sem Docker) e
+  PTY real no `test_terminal_features.py`.
+
+### Auditoria de segurança (AppSec) — hardening da plataforma
+
+- `tool add --name ..` destruiria o diretório de dados: nomes de travessia
+  (`.`/`..`) e o nome reservado `attacker` são rejeitados (CWE-22).
+- Sync de exemplos não segue mais symlinks plantados no volume (CWE-59);
+  containers nascem com `pids_limit` (anti fork-bomb no host, CWE-400).
+- **Airgap sem vias secundárias**: `enforce_airgap` desconecta qualquer
+  container do lab de qualquer rede externa; `--audit` lê o estado real.
+- Registry com lock + escrita atômica; `remove_tool` valida o caminho antes
+  de apagar; bind mount comparado por caminho resolvido.
+- Terminal: resize sob lock (pyte não é thread-safe) e painel encerrado não
+  vaza teclas para as ações globais da TUI.
+
+### v1.1.1 — site de divulgação + alvos médios
+
+- Alvos `shopvuln` (SQLi, IDOR, SSRF, XSS stored, RCE) e `privesc`
+  (sudo/cron), writeups em `docs/`.
+
+### v1.0.5 — modo airgap e auditoria de rede
+
+- `CYBERLAB_AIRGAP=1`, `--audit` (rede internal, portas, NAT, containers),
+  sparklines em tempo real e atualização do app pela TUI.
+
+Histórico completo: `git log --oneline`.
 
 ---
 
