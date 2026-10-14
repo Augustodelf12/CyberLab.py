@@ -147,6 +147,76 @@ def main() -> int:
         check("PTY real: reader encerra após terminate",
               not t5._read_thread or not t5._read_thread.is_alive())
 
+    # ---- FIX-12: Ctrl+C copia quando há seleção (padrão Windows),
+    # sem matar o processo; sem seleção continua sendo SIGINT
+    from textual import events as _events
+
+    class _RecordingProc:
+        def __init__(self):
+            self.written = []
+
+        def write(self, s):
+            self.written.append(s)
+
+        def isalive(self):
+            return True
+
+        def terminate(self, force=False):
+            pass
+
+        def setwinsize(self, rows, cols):
+            pass
+
+    t6 = Terminal(["sh"])
+    t6._buflock = threading.Lock()
+    t6._proc = _RecordingProc()
+    t6._feed(b"linha_para_copiar\n")
+
+    proc6 = t6._proc
+    t6.on_key(_events.Key(key="ctrl+c", character="\x03"))
+    check("sem seleção, ctrl+c envia SIGINT (\\x03)",
+          proc6.written == [b"\x03"], repr(proc6.written))
+
+    # clique simples (seleção de largura zero) não sequestra o ctrl+c
+    t6._sel_start = (0, 2)
+    t6._sel_end = (0, 2)
+    proc6.written.clear()
+    t6.on_key(_events.Key(key="ctrl+c", character="\x03"))
+    check("clique simples não vira cópia (SIGINT preservado)",
+          proc6.written == [b"\x03"], repr(proc6.written))
+
+    # seleção real: ctrl+c copia e NÃO envia nada ao processo
+    t6._sel_start = (0, 0)
+    t6._sel_end = (0, 19)
+    proc6.written.clear()
+    t6.on_key(_events.Key(key="ctrl+c", character="\x03"))
+    check("com seleção, ctrl+c NÃO envia \\x03 ao processo",
+          proc6.written == [], repr(proc6.written))
+    check("com seleção, ctrl+c copia (tenta o clipboard)",
+          "copiado" in (t6.border_subtitle or "")
+          or "erro ao copiar" in (t6.border_subtitle or ""),
+          t6.border_subtitle)
+    check("seleção liberada após copiar (próximo ctrl+c = SIGINT)",
+          t6._sel_start is None and t6._sel_end is None)
+    proc6.written.clear()
+    t6.on_key(_events.Key(key="ctrl+c", character="\x03"))
+    check("após copiar, ctrl+c volta a interromper",
+          proc6.written == [b"\x03"], repr(proc6.written))
+
+    # painel encerrado com seleção: copiar segue funcionando
+    t7 = Terminal(["sh"])
+    t7._buflock = threading.Lock()
+    t7._feed(b"saida_final\n")
+    t7._dead = True
+    t7._sel_start = (0, 0)
+    t7._sel_end = (0, 7)
+    evt = _events.Key(key="ctrl+c", character="\x03")
+    t7.on_key(evt)
+    check("painel encerrado: ctrl+c copia a seleção",
+          ("copiado" in (t7.border_subtitle or "")
+           or "erro ao copiar" in (t7.border_subtitle or ""))
+          and evt._stop_propagation, t7.border_subtitle)
+
     # ---- FIX-9b: bindings priority (ctrl+q) continuam vivos com painel morto
     # (o widget morto consome teclas comuns, mas não pode prender o usuário)
     if sys.platform != "win32":

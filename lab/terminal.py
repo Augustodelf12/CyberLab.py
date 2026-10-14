@@ -278,6 +278,15 @@ class Terminal(Widget):
 
     # -------------------------------------------------------------------- input
     def on_key(self, event: events.Key) -> None:
+        # Ctrl+C com texto selecionado COPIA (padrão no Windows); sem seleção
+        # segue para o PTY como SIGINT. Antes do guard de painel morto:
+        # copiar a saída de um processo encerrado é válido e útil.
+        if event.key == "ctrl+c" and self._has_selection():
+            self.action_copy_selection()
+            self._clear_selection()  # próximo ctrl+c volta a interromper
+            self.refresh()
+            event.stop()
+            return
         if self._dead or not self._proc:
             # terminal encerrado consome a tecla: digitar 'x'/'s'/'i' num
             # painel morto não pode disparar as ações globais da TUI.
@@ -408,6 +417,14 @@ class Terminal(Widget):
             self._selecting = False
             self.release_mouse()
             event.stop()
+
+    def _has_selection(self) -> bool:
+        """Há seleção real (arrastada)? Clique simples não conta."""
+        return (
+            self._sel_start is not None
+            and self._sel_end is not None
+            and self._sel_start != self._sel_end
+        )
 
     def _clear_selection(self) -> None:
         self._selecting = False

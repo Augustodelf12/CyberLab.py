@@ -152,8 +152,10 @@ Suas ferramentas/alvos custom ficam em `~/.local/share/cyberlab/` (Linux) ou
 As abas de terminal têm scrollback (roda do mouse, Shift+setas, Shift+PgUp/PgDn),
 cores **16/256/24-bit (truecolor)**, alternate screen (nano/vim/less) e suporte
 a modo de cursor. Para copiar a saída: **arraste com o mouse** para selecionar e
-pressione **`Ctrl+Shift+C`** (sem seleção, copia a linha do cursor). Cole com
-**`Ctrl+Shift+V`**.
+pressionione **`Ctrl+C`** ou **`Ctrl+Shift+C`** (sem seleção, copia a linha do
+cursor). Com texto selecionado, `Ctrl+C` copia e **não interrompe** o
+processo; sem seleção, `Ctrl+C` segue sendo o interrupção (`SIGINT`) — o mesmo
+comportamento do Windows Terminal. Cole com **`Ctrl+Shift+V`**.
 
 > **Terminal embutido no Windows:** a TUI e as abas de terminal funcionam
 > **nativos** — o pseudo-terminal do Windows (ConPTY) entra automaticamente
