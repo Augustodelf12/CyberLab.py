@@ -18,5 +18,6 @@ video_contexto/
 .DS_Store
 Thumbs.db
 
-#em dev
-installer__desenvolvimento_NÃO_COMMITAR__
+#em dev — qualquer pasta que comece com "installer" (evita commit acidental
+# por renomeação; a pasta já mudou de nome 3x)
+installer*/
